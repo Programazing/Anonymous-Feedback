@@ -15,7 +15,8 @@ const __dirname = path.dirname(__filename);
 const publicDir = path.resolve(__dirname, "../public");
 
 const app = Fastify({
-  logger: false
+  logger: false,
+  bodyLimit: 16 * 1024
 });
 
 await app.register(fastifyStatic, {
