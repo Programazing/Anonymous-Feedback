@@ -22,10 +22,18 @@ await app.register(fastifyStatic, {
   serve: false
 });
 
+if (!process.env.PUBLIC_PATH || process.env.PUBLIC_PATH === "/f/replace-me") {
+  throw new Error("PUBLIC_PATH must be set to a randomized value.");
+}
+
+if (!process.env.ADMIN_PATH || process.env.ADMIN_PATH === "/r/replace-me") {
+  throw new Error("ADMIN_PATH must be set to a randomized value.");
+}
+
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "127.0.0.1";
-const publicPath = process.env.PUBLIC_PATH || "/f/replace-me";
-const adminPath = process.env.ADMIN_PATH || "/r/replace-me";
+const publicPath = process.env.PUBLIC_PATH;
+const adminPath = process.env.ADMIN_PATH;
 const publicBaseUrl = process.env.PUBLIC_BASE_URL || `http://localhost:${port}`;
 
 function isSunday() {
