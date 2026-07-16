@@ -180,9 +180,20 @@ try {
   const publicUrl = `${publicBaseUrl}${normalizedPublicPath}`;
   const adminUrl = `${publicBaseUrl}${normalizedAdminPath}`;
 
+  const logPublicUrl = (process.env.LOG_PUBLIC_URL ?? "true").toLowerCase() !== "false";
+  const logAdminUrl = (process.env.LOG_ADMIN_URL ?? "false").toLowerCase() === "true";
+
   console.log(`Server listening on ${publicBaseUrl}`);
-  console.log(`Public feedback URL: ${publicUrl}`);
-  console.log(`Admin review URL: ${adminUrl}`);
+  if (logPublicUrl) {
+    console.log(`Public feedback URL: ${publicUrl}`);
+  } else {
+    console.log("Public feedback URL logging disabled (set LOG_PUBLIC_URL=true to enable).");
+  }
+  if (logAdminUrl) {
+    console.log(`Admin review URL: ${adminUrl}`);
+  } else {
+    console.log("Admin review URL logging disabled (set LOG_ADMIN_URL=true to enable).");
+  }
 } catch (err) {
   console.error(err);
   process.exit(1);

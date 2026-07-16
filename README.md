@@ -180,6 +180,8 @@ The app can be configured with environment variables.
 | `PUBLIC_PATH` | Randomized public feedback path | `/f/1c3f4d9a7b21e8d44f8c1a0b` |
 | `ADMIN_PATH` | Randomized admin path | `/r/8aa2e1f4d7c903b18d2f6c55` |
 | `ADMIN_TOKEN` | Secret token required for the admin page and admin API (min 16 chars). Sent as `x-admin-token` header or `?token=` query param. | `s3cret-admin-token-please-change` |
+| `LOG_PUBLIC_URL` | Whether to print the full public feedback URL at startup. Defaults to `true`. | `true` |
+| `LOG_ADMIN_URL` | Whether to print the full admin review URL at startup. Defaults to `false` to keep sensitive operational data out of logs (OWASP guidance). | `false` |
 
 Node exposes environment variables through `process.env`, and current Node versions also support loading them from a file with `--env-file`.
 
@@ -192,6 +194,8 @@ PUBLIC_BASE_URL=http://localhost:3000
 PUBLIC_PATH=/f/1c3f4d9a7b21e8d44f8c1a0b
 ADMIN_PATH=/r/8aa2e1f4d7c903b18d2f6c55
 ADMIN_TOKEN=s3cret-admin-token-please-change
+LOG_PUBLIC_URL=true
+LOG_ADMIN_URL=false
 ```
 
 ### Generating randomized paths
@@ -233,10 +237,10 @@ node --env-file=.env src/server.js
 ```text
 Server listening on http://localhost:3000
 Public feedback URL: http://localhost:3000/f/1c3f4d9a7b21e8d44f8c1a0b
-Admin review URL: http://localhost:3000/r/8aa2e1f4d7c903b18d2f6c55
+Admin review URL logging disabled (set LOG_ADMIN_URL=true to enable).
 ```
 
-Printing the full admin URL is convenient, but it also makes that log output sensitive operational data. OWASP guidance warns against exposing sensitive information in logs, so access to deployment logs should be restricted if this feature is enabled.
+Printing the full admin URL is convenient, but it also makes that log output sensitive operational data. OWASP guidance warns against exposing sensitive information in logs, so admin URL logging is disabled by default. Set `LOG_ADMIN_URL=true` to include it (and restrict access to deployment logs accordingly). Similarly, `LOG_PUBLIC_URL=false` suppresses the public URL line.
 
 ## Using the app
 
