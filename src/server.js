@@ -101,6 +101,19 @@ function normalizePath(value, fallback) {
 const normalizedPublicPath = normalizePath(publicPath, "/f/replace-me");
 const normalizedAdminPath = normalizePath(adminPath, "/r/replace-me");
 
+app.addHook("onSend", async (request, reply, payload) => {
+  const url = request.raw.url || "";
+  const routeUrl = url.split("?")[0];
+  if (
+    routeUrl === normalizedPublicPath ||
+    routeUrl === normalizedAdminPath ||
+    routeUrl.startsWith("/api/")
+  ) {
+    reply.header("Cache-Control", "no-store");
+  }
+  return payload;
+});
+
 app.get(normalizedPublicPath, async (request, reply) => {
   return reply.sendFile("index.html");
 });
@@ -185,6 +198,22 @@ app.post("/api/admin/feedback/:id/review", {
 
 app.setNotFoundHandler((request, reply) => {
   reply.code(404).send({ ok: false, error: "Not found." });
+});
+
+app.setErrorHandler((error, request, reply) => {
+  const statusCode = error.statusCode && error.statusCode >= 400 && error.statusCode < 600
+    ? error.statusCode
+    : 500;
+
+  if (statusCode >= 500) {
+    console.error(error);
+    return reply.code(500).send({ ok: false, error: "Internal server error." });
+  }
+
+  return reply.code(statusCode).send({
+    ok: false,
+    error: error.message || "Request failed."
+  });
 });
 
 try {
