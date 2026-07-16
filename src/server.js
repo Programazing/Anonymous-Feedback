@@ -206,8 +206,16 @@ app.setErrorHandler((error, request, reply) => {
     : 500;
 
   if (statusCode >= 500) {
-    console.error(error);
-    return reply.code(500).send({ ok: false, error: "Internal server error." });
+    // Log minimally server-side; do not expose stack traces or internals to clients.
+    console.error(
+      `[error] ${request.method} ${request.url} -> ${statusCode}: ${error.message}`
+    );
+    return reply.code(500).send({ ok: false, error: "Internal error." });
+  }
+
+  // Client errors (4xx): safe, generic message. Preserve validation details when present.
+  if (error.validation) {
+    return reply.code(statusCode).send({ ok: false, error: "Invalid request." });
   }
 
   return reply.code(statusCode).send({
