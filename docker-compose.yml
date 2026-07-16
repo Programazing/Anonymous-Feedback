@@ -2,7 +2,6 @@ services:
   app:
     build: .
     image: anonymous-feedback:latest
-    container_name: anonymous-feedback
     restart: unless-stopped
 
     env_file:
@@ -19,8 +18,15 @@ services:
       LOG_PUBLIC_URL: ${LOG_PUBLIC_URL:-true}
       LOG_ADMIN_URL: ${LOG_ADMIN_URL:-false}
 
-    ports:
-      - "${DOCKER_HOST_PORT:-3001}:3000"
+    expose:
+      - "3000"
 
     volumes:
       - ./data:/app/data
+
+    networks:
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true
