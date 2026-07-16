@@ -1,4 +1,5 @@
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
@@ -28,6 +29,32 @@ if (!process.env.PUBLIC_PATH || process.env.PUBLIC_PATH === "/f/replace-me") {
 
 if (!process.env.ADMIN_PATH || process.env.ADMIN_PATH === "/r/replace-me") {
   throw new Error("ADMIN_PATH must be set to a randomized value.");
+}
+
+if (!process.env.ADMIN_TOKEN || process.env.ADMIN_TOKEN.length < 16) {
+  throw new Error("ADMIN_TOKEN must be set to a strong secret (at least 16 characters).");
+}
+
+const adminToken = process.env.ADMIN_TOKEN;
+
+function timingSafeEqualStr(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+async function requireAdminToken(request, reply) {
+  const headerToken = request.headers["x-admin-token"];
+  const queryToken = request.query && request.query.token;
+  const provided = typeof headerToken === "string" ? headerToken
+                 : typeof queryToken === "string" ? queryToken
+                 : "";
+
+  if (!timingSafeEqualStr(provided, adminToken)) {
+    return reply.code(401).send({ ok: false, error: "Unauthorized." });
+  }
 }
 
 const port = Number(process.env.PORT || 3000);
@@ -60,7 +87,7 @@ app.get(normalizedPublicPath, async (request, reply) => {
   return reply.sendFile("index.html");
 });
 
-app.get(normalizedAdminPath, async (request, reply) => {
+app.get(normalizedAdminPath, { preHandler: requireAdminToken }, async (request, reply) => {
   return reply.sendFile("admin.html");
 });
 
@@ -98,7 +125,7 @@ app.post("/api/feedback", {
   return reply.send({ ok: true });
 });
 
-app.get("/api/admin/feedback/unreviewed", async (request, reply) => {
+app.get("/api/admin/feedback/unreviewed", { preHandler: requireAdminToken }, async (request, reply) => {
   if (!isSunday()) {
     return reply.code(403).send({
       ok: false,
@@ -112,7 +139,7 @@ app.get("/api/admin/feedback/unreviewed", async (request, reply) => {
   });
 });
 
-app.get("/api/admin/feedback/reviewed", async (request, reply) => {
+app.get("/api/admin/feedback/reviewed", { preHandler: requireAdminToken }, async (request, reply) => {
   return reply.send({
     ok: true,
     items: getReviewedFeedback()
@@ -120,6 +147,7 @@ app.get("/api/admin/feedback/reviewed", async (request, reply) => {
 });
 
 app.post("/api/admin/feedback/:id/review", {
+  preHandler: requireAdminToken,
   schema: {
     params: {
       type: "object",

@@ -115,6 +115,15 @@
     const unreviewedList = document.getElementById("unreviewed-list");
     const reviewedList = document.getElementById("reviewed-list");
 
+    const adminToken = new URLSearchParams(window.location.search).get("token") || "";
+
+    function adminFetch(url, options = {}) {
+      const headers = Object.assign({}, options.headers || {}, {
+        "x-admin-token": adminToken
+      });
+      return fetch(url, Object.assign({}, options, { headers }));
+    }
+
     function renderItems(container, items, reviewedSection) {
       container.innerHTML = "";
 
@@ -140,7 +149,7 @@
           button.addEventListener("click", async () => {
             button.disabled = true;
 
-            const response = await fetch(`/api/admin/feedback/${item.id}/review`, {
+            const response = await adminFetch(`/api/admin/feedback/${item.id}/review`, {
               method: "POST"
             });
 
@@ -166,7 +175,7 @@
       unreviewedStatus.innerHTML = "";
       unreviewedList.innerHTML = "";
 
-      const response = await fetch("/api/admin/feedback/unreviewed");
+      const response = await adminFetch("/api/admin/feedback/unreviewed");
       const result = await response.json();
 
       if (response.status === 403) {
@@ -191,7 +200,7 @@
     async function loadReviewed() {
       reviewedList.innerHTML = "";
 
-      const response = await fetch("/api/admin/feedback/reviewed");
+      const response = await adminFetch("/api/admin/feedback/reviewed");
       const result = await response.json();
 
       if (!response.ok) {

@@ -179,6 +179,7 @@ The app can be configured with environment variables.
 | `PUBLIC_BASE_URL` | Base URL used in startup logs | `https://feedback.example.com` |
 | `PUBLIC_PATH` | Randomized public feedback path | `/f/1c3f4d9a7b21e8d44f8c1a0b` |
 | `ADMIN_PATH` | Randomized admin path | `/r/8aa2e1f4d7c903b18d2f6c55` |
+| `ADMIN_TOKEN` | Secret token required for the admin page and admin API (min 16 chars). Sent as `x-admin-token` header or `?token=` query param. | `s3cret-admin-token-please-change` |
 
 Node exposes environment variables through `process.env`, and current Node versions also support loading them from a file with `--env-file`.
 
@@ -190,6 +191,7 @@ HOST=127.0.0.1
 PUBLIC_BASE_URL=http://localhost:3000
 PUBLIC_PATH=/f/1c3f4d9a7b21e8d44f8c1a0b
 ADMIN_PATH=/r/8aa2e1f4d7c903b18d2f6c55
+ADMIN_TOKEN=s3cret-admin-token-please-change
 ```
 
 ### Generating randomized paths
@@ -207,7 +209,10 @@ Example:
 ```env
 PUBLIC_PATH=/f/1c3f4d9a7b21e8d44f8c1a0b
 ADMIN_PATH=/r/8aa2e1f4d7c903b18d2f6c55
+ADMIN_TOKEN=s3cret-admin-token-please-change
 ```
+
+Use the same command (`openssl rand -hex 32`) to generate a strong `ADMIN_TOKEN`.
 
 ## Running the app
 
@@ -246,11 +251,34 @@ There is no reply link, no receipt code, and no edit token. That keeps the publi
 
 ### Reviewing feedback
 
-1. Open the admin URL.
+1. Open the admin URL, appending the admin token as a `?token=...` query parameter (see [Passing the admin token in a browser](#passing-the-admin-token-in-a-browser)).
 2. If it is Sunday, unread items are displayed.
 3. If it is not Sunday, the unread section remains locked.
 4. Reviewed items are shown in a separate list.
 5. Click **Mark reviewed** to move an item out of the unread list.
+
+### Passing the admin token in a browser
+
+The admin page and admin API require the `ADMIN_TOKEN` secret. In a browser, pass it by appending it as a `?token=...` query parameter to the admin URL:
+
+```
+http://localhost:3000/r/8aa2e1f4d7c903b18d2f6c55?token=your-admin-token
+```
+
+The admin page (`public/admin.html`) reads `token` from the URL and automatically forwards it as the `x-admin-token` header on every subsequent admin API call, so you only need to include it once when opening the page.
+
+Tips:
+
+- Bookmark the full URL (path + `?token=...`) so you don't have to type it each time.
+- Keep the tab/window private — the token is visible in the address bar and browser history.
+- To avoid the token appearing in server access logs, use a browser extension (e.g. ModHeader) to send `x-admin-token` as a header instead, and open the admin URL without the query string.
+- Rotate `ADMIN_TOKEN` in your `.env` if it may have been exposed.
+
+For non-browser clients (e.g. `curl`), send the token as a header instead:
+
+```bash
+curl -H "x-admin-token: your-admin-token" http://localhost:3000/api/admin/feedback/reviewed
+```
 
 ## Hidden routes and static-file behavior
 
@@ -288,6 +316,7 @@ HOST=127.0.0.1
 PUBLIC_BASE_URL=http://localhost:3000
 PUBLIC_PATH=/f/local-test-path
 ADMIN_PATH=/r/local-admin-path
+ADMIN_TOKEN=local-dev-admin-token-please-change
 ```
 
 Then verify behavior:
