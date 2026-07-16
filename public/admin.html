@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Feedback Admin</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f6f6;
+      --surface: #ffffff;
+      --text: #1c1c1c;
+      --muted: #666666;
+      --border: #dddddd;
+      --button: #111111;
+      --button-text: #ffffff;
+      --error: #a11a1a;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121212;
+        --surface: #1b1b1b;
+        --text: #f2f2f2;
+        --muted: #aaaaaa;
+        --border: #333333;
+        --button: #f2f2f2;
+        --button-text: #121212;
+        --error: #ff7b7b;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 24px;
+    }
+
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    h1, h2 {
+      margin-bottom: 12px;
+    }
+
+    p {
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+
+    .item {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-top: 12px;
+      white-space: pre-wrap;
+    }
+
+    button {
+      margin-top: 12px;
+      padding: 10px 14px;
+      font: inherit;
+      font-weight: 600;
+      border: 0;
+      border-radius: 10px;
+      background: var(--button);
+      color: var(--button-text);
+      cursor: pointer;
+    }
+
+    .locked {
+      color: var(--error);
+      font-weight: 700;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Feedback Admin</h1>
+
+    <section class="panel">
+      <h2>Unread feedback</h2>
+      <p>Unread feedback is only available on Sundays.</p>
+      <div id="unreviewed-status"></div>
+      <div id="unreviewed-list"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Reviewed feedback</h2>
+      <div id="reviewed-list"></div>
+    </section>
+  </main>
+
+  <script>
+    const unreviewedStatus = document.getElementById("unreviewed-status");
+    const unreviewedList = document.getElementById("unreviewed-list");
+    const reviewedList = document.getElementById("reviewed-list");
+
+    function renderItems(container, items, reviewedSection) {
+      container.innerHTML = "";
+
+      if (!items.length) {
+        const empty = document.createElement("p");
+        empty.className = "empty";
+        empty.textContent = "No feedback in this section.";
+        container.appendChild(empty);
+        return;
+      }
+
+      for (const item of items) {
+        const wrapper = document.createElement("article");
+        wrapper.className = "item";
+
+        const text = document.createElement("div");
+        text.textContent = item.body;
+        wrapper.appendChild(text);
+
+        if (!reviewedSection) {
+          const button = document.createElement("button");
+          button.textContent = "Mark reviewed";
+          button.addEventListener("click", async () => {
+            button.disabled = true;
+
+            const response = await fetch(`/api/admin/feedback/${item.id}/review`, {
+              method: "POST"
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+              button.disabled = false;
+              alert(result.error || "Could not mark reviewed.");
+              return;
+            }
+
+            await loadAll();
+          });
+
+          wrapper.appendChild(button);
+        }
+
+        container.appendChild(wrapper);
+      }
+    }
+
+    async function loadUnreviewed() {
+      unreviewedStatus.innerHTML = "";
+      unreviewedList.innerHTML = "";
+
+      const response = await fetch("/api/admin/feedback/unreviewed");
+      const result = await response.json();
+
+      if (response.status === 403) {
+        const locked = document.createElement("p");
+        locked.className = "locked";
+        locked.textContent = result.error || "Locked until Sunday.";
+        unreviewedStatus.appendChild(locked);
+        return;
+      }
+
+      if (!response.ok) {
+        const error = document.createElement("p");
+        error.className = "locked";
+        error.textContent = result.error || "Could not load unread feedback.";
+        unreviewedStatus.appendChild(error);
+        return;
+      }
+
+      renderItems(unreviewedList, result.items, false);
+    }
+
+    async function loadReviewed() {
+      reviewedList.innerHTML = "";
+
+      const response = await fetch("/api/admin/feedback/reviewed");
+      const result = await response.json();
+
+      if (!response.ok) {
+        const error = document.createElement("p");
+        error.className = "locked";
+        error.textContent = result.error || "Could not load reviewed feedback.";
+        reviewedList.appendChild(error);
+        return;
+      }
+
+      renderItems(reviewedList, result.items, true);
+    }
+
+    async function loadAll() {
+      await loadUnreviewed();
+      await loadReviewed();
+    }
+
+    loadAll();
+  </script>
+</body>
+</html>

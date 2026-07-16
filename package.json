@@ -1,0 +1,22 @@
+{
+  "name": "anonymous-feedback",
+  "version": "1.0.0",
+  "description": "Anonymous feedback app with Sunday-only review access",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@fastify/static": "^10.1.0",
+    "better-sqlite3": "^12.11.1",
+    "fastify": "^5.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
