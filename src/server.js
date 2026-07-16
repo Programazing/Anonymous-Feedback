@@ -23,7 +23,7 @@ await app.register(fastifyStatic, {
 });
 
 const port = Number(process.env.PORT || 3000);
-const host = process.env.HOST || "0.0.0.0";
+const host = process.env.HOST || "127.0.0.1";
 const publicPath = process.env.PUBLIC_PATH || "/f/replace-me";
 const adminPath = process.env.ADMIN_PATH || "/r/replace-me";
 const publicBaseUrl = process.env.PUBLIC_BASE_URL || `http://localhost:${port}`;
