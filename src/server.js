@@ -8,7 +8,8 @@ import {
   insertFeedback,
   getUnreviewedFeedback,
   getReviewedFeedback,
-  markFeedbackReviewed
+  markFeedbackReviewed,
+  closeDatabase
 } from "./data.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -248,3 +249,22 @@ try {
   console.error(err);
   process.exit(1);
 }
+
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`Received ${signal}, shutting down...`);
+  try {
+    await app.close();
+    closeDatabase();
+    process.exit(0);
+  } catch (err) {
+    console.error("Error during shutdown:", err);
+    try { closeDatabase(); } catch {}
+    process.exit(1);
+  }
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

@@ -60,3 +60,9 @@ export function getReviewedFeedback() {
 export function markFeedbackReviewed(id) {
   return markReviewedStmt.run(id);
 }
+
+export function closeDatabase() {
+  if (db.open) {
+    db.close();
+  }
+}
