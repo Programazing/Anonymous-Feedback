@@ -16,6 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicDir = path.resolve(__dirname, "../public");
 
+export async function buildApp() {
 const app = Fastify({
   logger: false,
   bodyLimit: 16 * 1024
@@ -225,6 +226,13 @@ app.setErrorHandler((error, request, reply) => {
   });
 });
 
+  return app;
+}
+
+const isMain = import.meta.url === `file://${process.argv[1]}`;
+
+if (isMain) {
+  const app = await buildApp();
 try {
   await app.listen({ port, host });
 
@@ -268,3 +276,4 @@ async function shutdown(signal) {
 
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
+}

@@ -2,12 +2,15 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 
-const dataDir = path.resolve("data");
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+const dbPath = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : path.join(path.resolve("data"), "feedback.sqlite");
+
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
 }
 
-const dbPath = path.join(dataDir, "feedback.sqlite");
 const db = new Database(dbPath);
 
 db.pragma("journal_mode = WAL");

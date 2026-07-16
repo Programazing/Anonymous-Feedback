@@ -59,6 +59,8 @@ anonymous-feedback/
   src/
     data.js
     server.js
+  test/
+    server.test.js
   package.json
 ```
 
@@ -182,6 +184,7 @@ The app can be configured with environment variables.
 | `ADMIN_TOKEN` | Secret token required for the admin page and admin API (min 16 chars). Sent as `x-admin-token` header or `?token=` query param. | `s3cret-admin-token-please-change` |
 | `LOG_PUBLIC_URL` | Whether to print the full public feedback URL at startup. Defaults to `true`. | `true` |
 | `LOG_ADMIN_URL` | Whether to print the full admin review URL at startup. Defaults to `false` to keep sensitive operational data out of logs (OWASP guidance). | `false` |
+| `DB_PATH` | Override the SQLite database file path. Defaults to `data/feedback.sqlite`. Primarily used by the test suite to isolate a temporary database. | `/tmp/afb-test/feedback.sqlite` |
 
 Node exposes environment variables through `process.env`, and current Node versions also support loading them from a file with `--env-file`.
 
@@ -283,6 +286,29 @@ For non-browser clients (e.g. `curl`), send the token as a header instead:
 ```bash
 curl -H "x-admin-token: your-admin-token" http://localhost:3000/api/admin/feedback/reviewed
 ```
+
+## Testing
+
+The project includes a small `node:test` suite that covers the most important behaviors of the HTTP API. Tests use Fastify's in-process `app.inject()` — no ports are bound and no network requests are made.
+
+Run the suite with:
+
+```bash
+npm test
+```
+
+What is covered:
+
+- `POST /api/feedback` accepts a valid payload and rejects too-short input (schema validation).
+- `GET /api/admin/feedback/unreviewed` is blocked with `403` on non-Sunday (the current date is stubbed to a Monday for the test).
+- `GET /api/admin/feedback/reviewed` requires a valid `x-admin-token` header (`401` without it, `200` with it).
+- `POST /api/admin/feedback/:id/review` marks an item as reviewed and returns `404` for an unknown id.
+
+Implementation notes:
+
+- `src/server.js` exports a `buildApp()` factory so tests can construct a fresh app without triggering `listen()` or signal handlers. The auto-start block only runs when the file is executed directly (`node src/server.js`).
+- `src/data.js` honors a `DB_PATH` environment variable so the test suite can point at a temporary SQLite file (created under the OS temp directory and cleaned up afterwards).
+- The test file sets `PUBLIC_PATH`, `ADMIN_PATH`, `ADMIN_TOKEN`, and `DB_PATH` before importing the server modules, so the app boots in an isolated, deterministic configuration.
 
 ## Hidden routes and static-file behavior
 
@@ -401,6 +427,7 @@ These limitations are deliberate in many cases because each added feature increa
 - Add a private deployment runbook.
 - Add optional export to Markdown or CSV.
 - Add light abuse protection only if needed, while being careful not to introduce new tracking surfaces.
+- Expand the test suite (e.g. helmet/CSP headers, Sunday-allowed unread path, rate limiting once added).
 
 
 ## License
