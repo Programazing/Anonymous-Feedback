@@ -68,10 +68,6 @@ function isSunday() {
   return now.getDay() === 0;
 }
 
-function trimBody(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
 function normalizePath(value, fallback) {
   if (!value || typeof value !== "string") {
     return fallback;
@@ -92,6 +88,11 @@ app.get(normalizedAdminPath, { preHandler: requireAdminToken }, async (request, 
 });
 
 app.post("/api/feedback", {
+  preValidation: async (request) => {
+    if (request.body && typeof request.body === "object" && typeof request.body.body === "string") {
+      request.body.body = request.body.body.trim();
+    }
+  },
   schema: {
     body: {
       type: "object",
@@ -111,17 +112,7 @@ app.post("/api/feedback", {
     }
   }
 }, async (request, reply) => {
-  const body = trimBody(request.body.body);
-
-  if (!body) {
-    return reply.code(400).send({ ok: false, error: "Feedback is required." });
-  }
-
-  if (body.length < 10) {
-    return reply.code(400).send({ ok: false, error: "Feedback must be at least 10 characters." });
-  }
-
-  insertFeedback(body);
+  insertFeedback(request.body.body);
   return reply.send({ ok: true });
 });
 
