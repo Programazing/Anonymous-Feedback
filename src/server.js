@@ -116,6 +116,16 @@ export async function buildApp() {
     return payload;
   });
 
+  app.get("/debug/routes", async () => {
+    return {
+      publicPath: normalizedPublicPath,
+      adminPath: normalizedAdminPath,
+      host,
+      port,
+      publicBaseUrl
+    };
+  });
+
   app.get("/", async (request, reply) => {
     return reply.redirect(normalizedPublicPath);
   });
