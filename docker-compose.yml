@@ -4,14 +4,23 @@ services:
     image: anonymous-feedback:latest
     container_name: anonymous-feedback
     restart: unless-stopped
+
     env_file:
       - .env
+
     environment:
-      # Override host/port defaults so the app is reachable from outside the container.
-      HOST: 0.0.0.0
-      PORT: 3000
+      HOST: ${HOST:-0.0.0.0}
+      PORT: ${PORT:-3000}
       DB_PATH: /app/data/feedback.sqlite
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      PUBLIC_PATH: ${PUBLIC_PATH}
+      ADMIN_PATH: ${ADMIN_PATH}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      LOG_PUBLIC_URL: ${LOG_PUBLIC_URL:-true}
+      LOG_ADMIN_URL: ${LOG_ADMIN_URL:-false}
+
     ports:
-      - "${PORT:-3000}:3000"
+      - "${DOCKER_HOST_PORT:-3001}:3000"
+
     volumes:
       - ./data:/app/data
