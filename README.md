@@ -1,0 +1,377 @@
+# Anonymous Feedback
+
+A small Node.js application for collecting anonymous text feedback with no logins, no accounts, no applicant IDs, and no special links tied to a person. The app uses a public feedback page, a private admin page, SQLite for storage, and a Sunday-only rule for viewing unread feedback.
+
+## What this application does
+
+This application is designed to collect plain-text feedback while minimizing stored metadata. It uses Fastify route schemas for request validation, SQLite for a minimal local database, and a `reviewed` flag stored as an integer because SQLite commonly represents Boolean-like values as `0` and `1`.
+
+The current design intentionally keeps the data model small:
+
+- Public users can submit anonymous text feedback.
+- The application stores the feedback text and whether it has been reviewed.
+- Unread feedback is only visible on Sundays.
+- Reviewed feedback remains visible in the admin interface.
+- Public and admin entry pages can be moved to randomized paths.
+
+## Privacy model
+
+The application is designed around data minimization rather than a promise of perfect anonymity. OWASP guidance warns that logs and operational metadata can contain sensitive information, so the app avoids storing unnecessary fields and keeps logging intentionally minimal.
+
+Important privacy limits:
+
+- This app avoids logins and avoids storing explicit user identifiers.
+- This app does **not** make a person untraceable at the network level.
+- Writing style, infrastructure logs, reverse-proxy logs, and operational mistakes can still reduce anonymity.
+- Admin URLs hidden behind random paths are only light obscurity, not real security on their own.
+
+For real-world use, protect the admin route with a reverse proxy, basic auth, or another proper access control mechanism. Hidden URLs should be treated as convenience and noise reduction, not as the primary security boundary.
+
+## Stack
+
+| Component | Choice | Notes |
+|---|---|---|
+| Runtime | Node.js | Uses native ESM imports and environment variables through `process.env`. |
+| Web framework | Fastify | Fastify supports schema-based route validation and explicit route handling. |
+| Static files | `@fastify/static` | With `serve: false`, files are only exposed through explicit routes. |
+| Database | SQLite | Simple embedded storage, appropriate for a small single-app deployment. |
+| SQLite driver | `better-sqlite3` | Supports straightforward prepared statements and direct access patterns. |
+
+## Features
+
+- Anonymous text submission form.
+- No public login flow.
+- Sunday-only unread review gate.
+- Separate reviewed and unread views in admin.
+- Randomized public and admin paths via environment variables.
+- Startup logs that can print the full public and admin URLs.
+- Minimal database schema.
+
+## Project structure
+
+```text
+anonymous-feedback/
+  data/
+    feedback.sqlite
+  public/
+    admin.html
+    index.html
+  src/
+    data.js
+    server.js
+  package.json
+```
+
+## How it works
+
+### Public flow
+
+1. A person opens the randomized public feedback URL.
+2. They type plain-text feedback into a textarea.
+3. The browser sends a `POST /api/feedback` request.
+4. The server validates the request body using a Fastify schema and stores the text with `reviewed = 0`.
+
+### Admin flow
+
+1. An admin opens the randomized admin URL.
+2. The admin page requests unread feedback from `/api/admin/feedback/unreviewed`.
+3. If the current server day is not Sunday, the server returns `403` and the page shows a locked message.
+4. If it is Sunday, unread feedback is returned.
+5. When the admin marks an item as reviewed, the app updates that row to `reviewed = 1`.
+6. Reviewed items are available from `/api/admin/feedback/reviewed`.
+
+### Why there is no `submitted_at`
+
+This version intentionally avoids a submission timestamp to reduce stored timing metadata. The Sunday delay is implemented as an application rule rather than a per-record release schedule, which keeps the system simpler at the cost of less granular delayed-release logic.
+
+## Database schema
+
+The application uses a single table:
+
+```sql
+CREATE TABLE IF NOT EXISTS feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  body TEXT NOT NULL,
+  reviewed INTEGER NOT NULL DEFAULT 0 CHECK (reviewed IN (0, 1))
+);
+```
+
+SQLite does not provide a dedicated Boolean storage type in the way many other databases do, so `INTEGER` with `0` and `1` is the practical pattern for a field like `reviewed`.
+
+## API overview
+
+| Method | Route | Purpose |
+|---|---|---|
+| `POST` | `/api/feedback` | Submit anonymous feedback. |
+| `GET` | `/api/admin/feedback/unreviewed` | Get unread feedback, but only on Sunday. |
+| `GET` | `/api/admin/feedback/reviewed` | Get reviewed feedback. |
+| `POST` | `/api/admin/feedback/:id/review` | Mark one item as reviewed. |
+
+### `POST /api/feedback`
+
+Request body:
+
+```json
+{
+  "body": "This is anonymous feedback"
+}
+```
+
+Validation rules:
+
+- `body` is required.
+- `body` must be a string.
+- `body` must be at least 10 characters.
+- `body` must be no more than 3000 characters.
+- Extra properties are rejected.
+
+Fastify recommends schema-based validation for routes, which keeps request rules close to the endpoint definition.
+
+Success response:
+
+```json
+{
+  "ok": true
+}
+```
+
+Example error response:
+
+```json
+{
+  "ok": false,
+  "error": "Feedback must be at least 10 characters."
+}
+```
+
+## Setup
+
+### Prerequisites
+
+- Node.js 20+ is recommended.
+- npm is required.
+- SQLite is not required as a separate service because the app uses an embedded SQLite database file.
+
+### Installation
+
+1. Clone or copy the project.
+2. Open a terminal in the project folder.
+3. Install dependencies:
+
+```bash
+npm install
+```
+
+### Required packages
+
+```bash
+npm install fastify @fastify/static better-sqlite3
+```
+
+## Configuration
+
+The app can be configured with environment variables.
+
+| Variable | Purpose | Example |
+|---|---|---|
+| `PORT` | Port the Node app listens on | `3000` |
+| `HOST` | Bind address for the Node app | `127.0.0.1` |
+| `PUBLIC_BASE_URL` | Base URL used in startup logs | `https://feedback.example.com` |
+| `PUBLIC_PATH` | Randomized public feedback path | `/f/1c3f4d9a7b21e8d44f8c1a0b` |
+| `ADMIN_PATH` | Randomized admin path | `/r/8aa2e1f4d7c903b18d2f6c55` |
+
+Node exposes environment variables through `process.env`, and current Node versions also support loading them from a file with `--env-file`.
+
+### Example `.env`
+
+```env
+PORT=3000
+HOST=127.0.0.1
+PUBLIC_BASE_URL=http://localhost:3000
+PUBLIC_PATH=/f/1c3f4d9a7b21e8d44f8c1a0b
+ADMIN_PATH=/r/8aa2e1f4d7c903b18d2f6c55
+```
+
+### Generating randomized paths
+
+Use a strong random string instead of a human-readable path name:
+
+```bash
+openssl rand -hex 12
+```
+
+This produces a 24-character hex string that can be used as part of the public or admin path.
+
+Example:
+
+```env
+PUBLIC_PATH=/f/1c3f4d9a7b21e8d44f8c1a0b
+ADMIN_PATH=/r/8aa2e1f4d7c903b18d2f6c55
+```
+
+## Running the app
+
+### Standard start
+
+```bash
+npm start
+```
+
+### Start with `.env`
+
+```bash
+node --env-file=.env src/server.js
+```
+
+### Example startup output
+
+```text
+Server listening on http://localhost:3000
+Public feedback URL: http://localhost:3000/f/1c3f4d9a7b21e8d44f8c1a0b
+Admin review URL: http://localhost:3000/r/8aa2e1f4d7c903b18d2f6c55
+```
+
+Printing the full admin URL is convenient, but it also makes that log output sensitive operational data. OWASP guidance warns against exposing sensitive information in logs, so access to deployment logs should be restricted if this feature is enabled.
+
+## Using the app
+
+### Submitting feedback
+
+1. Open the public feedback URL.
+2. Type feedback into the textarea.
+3. Submit the form.
+4. On success, the page shows a generic confirmation message.
+
+There is no reply link, no receipt code, and no edit token. That keeps the public flow minimal and avoids introducing identifiers tied to a single submission.
+
+### Reviewing feedback
+
+1. Open the admin URL.
+2. If it is Sunday, unread items are displayed.
+3. If it is not Sunday, the unread section remains locked.
+4. Reviewed items are shown in a separate list.
+5. Click **Mark reviewed** to move an item out of the unread list.
+
+## Hidden routes and static-file behavior
+
+The app uses `@fastify/static` with `serve: false`, which means static files are not exposed automatically by filename. This allows `reply.sendFile()` to work only for the explicit routes registered by the application, reducing accidental exposure of `index.html` or `admin.html` under default paths.
+
+This means the intended behavior is:
+
+- `/` returns `404`.
+- `/admin` returns `404`.
+- `/index.html` returns `404`.
+- Only the randomized public path serves the feedback page.
+- Only the randomized admin path serves the admin page.
+
+## Security notes
+
+This application aims for simplicity and privacy, but it is not a complete hardened anonymous reporting system. Hidden URLs are not a replacement for access control, and the admin route should be protected with a reverse proxy and authentication.
+
+Recommended deployment protections:
+
+- Put the Node app behind Caddy or Nginx.
+- Protect the admin route with HTTP basic auth or stronger access control.
+- Prefer binding the app to `127.0.0.1` when the reverse proxy runs on the same machine.
+- Avoid request-body logging.
+- Avoid third-party analytics, cookies, and other tracking features.
+
+Binding to `0.0.0.0` exposes the app on all IPv4 interfaces, while `127.0.0.1` keeps it local to the machine. For a same-box reverse proxy setup, `127.0.0.1` is usually the safer default.
+
+## Local development tips
+
+For local development, this is a useful configuration:
+
+```env
+PORT=3000
+HOST=127.0.0.1
+PUBLIC_BASE_URL=http://localhost:3000
+PUBLIC_PATH=/f/local-test-path
+ADMIN_PATH=/r/local-admin-path
+```
+
+Then verify behavior:
+
+```bash
+curl -i http://localhost:3000/
+curl -i http://localhost:3000/index.html
+curl -i http://localhost:3000/f/local-test-path
+curl -i http://localhost:3000/r/local-admin-path
+```
+
+Expected results:
+
+- `/` should return `404`.
+- `/index.html` should return `404`.
+- The randomized paths should return `200`.
+
+## Troubleshooting
+
+### `ERR_MODULE_NOT_FOUND`
+
+If Node reports `ERR_MODULE_NOT_FOUND`, check that all referenced files exist at the exact paths used in imports. With ESM, relative imports are resolved literally, including filename and extension.
+
+Examples:
+
+- `./data.js` requires a file named exactly `data.js`.
+- `Data.js` is not the same as `data.js` on Linux.
+- A file created in an editor but not saved to disk will still be treated as missing.
+
+### `/` still shows `index.html`
+
+If `http://localhost:3000/` still serves the public page, `@fastify/static` is probably still auto-serving files from `public/`. Set `serve: false` in the static registration block so files are only served through explicit routes.
+
+Example:
+
+```js
+await app.register(fastifyStatic, {
+  root: publicDir,
+  serve: false
+});
+```
+
+### `/index.html` still works
+
+If `/index.html` still works, one of these is likely true:
+
+- `serve: false` is not actually active.
+- A custom route explicitly serves `index.html`.
+- A reverse proxy is serving static files directly.
+- A catch-all route or not-found handler is returning `index.html`.
+
+### Unread feedback is never visible
+
+Unread feedback is only available when the server thinks it is Sunday. Check the server timezone and current date if the route appears locked unexpectedly.
+
+### The app is reachable from the network when it should be local-only
+
+If `HOST=0.0.0.0` is set, the application listens on all IPv4 interfaces. Change it to `127.0.0.1` if the app should only be reachable from the local machine or from a same-host reverse proxy.
+
+## Current limitations
+
+- No attachments.
+- No threaded replies.
+- No anti-spam system.
+- No moderation queue beyond the `reviewed` flag.
+- No per-item release schedule.
+- No search.
+- No user accounts.
+- No true network-layer anonymity guarantee.
+
+These limitations are deliberate in many cases because each added feature increases complexity, metadata, and privacy risk.
+
+## Suggested next improvements
+
+- Add reverse-proxy authentication for the admin route.
+- Add TLS termination at Caddy or Nginx.
+- Add automated backups for `data/feedback.sqlite`.
+- Add a private deployment runbook.
+- Add optional export to Markdown or CSV.
+- Add light abuse protection only if needed, while being careful not to introduce new tracking surfaces.
+
+
+## License
+
+MIT License. Copyright (c) 2026 Christopher Johnson.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files to deal in the Software without restriction, subject to the license terms in `LICENSE`.

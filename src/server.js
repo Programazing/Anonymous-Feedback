@@ -18,8 +18,15 @@ const app = Fastify({
 });
 
 await app.register(fastifyStatic, {
-  root: publicDir
+  root: publicDir,
+  serve: false
 });
+
+const port = Number(process.env.PORT || 3000);
+const host = process.env.HOST || "0.0.0.0";
+const publicPath = process.env.PUBLIC_PATH || "/f/replace-me";
+const adminPath = process.env.ADMIN_PATH || "/r/replace-me";
+const publicBaseUrl = process.env.PUBLIC_BASE_URL || `http://localhost:${port}`;
 
 function isSunday() {
   const now = new Date();
@@ -30,11 +37,22 @@ function trimBody(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-app.get("/", async (request, reply) => {
+function normalizePath(value, fallback) {
+  if (!value || typeof value !== "string") {
+    return fallback;
+  }
+
+  return value.startsWith("/") ? value : `/${value}`;
+}
+
+const normalizedPublicPath = normalizePath(publicPath, "/f/replace-me");
+const normalizedAdminPath = normalizePath(adminPath, "/r/replace-me");
+
+app.get(normalizedPublicPath, async (request, reply) => {
   return reply.sendFile("index.html");
 });
 
-app.get("/admin", async (request, reply) => {
+app.get(normalizedAdminPath, async (request, reply) => {
   return reply.sendFile("admin.html");
 });
 
@@ -104,7 +122,7 @@ app.post("/api/admin/feedback/:id/review", {
     }
   }
 }, async (request, reply) => {
-  const result = markFeedbackReviewed(request.params.id);
+  const result = markFeedbackReviewed(Number(request.params.id));
 
   if (result.changes === 0) {
     return reply.code(404).send({
@@ -120,12 +138,15 @@ app.setNotFoundHandler((request, reply) => {
   reply.code(404).send({ ok: false, error: "Not found." });
 });
 
-const port = Number(process.env.PORT || 3000);
-const host = process.env.HOST || "0.0.0.0";
-
 try {
   await app.listen({ port, host });
-  console.log(`Server running on http://${host}:${port}`);
+
+  const publicUrl = `${publicBaseUrl}${normalizedPublicPath}`;
+  const adminUrl = `${publicBaseUrl}${normalizedAdminPath}`;
+
+  console.log(`Server listening on ${publicBaseUrl}`);
+  console.log(`Public feedback URL: ${publicUrl}`);
+  console.log(`Admin review URL: ${adminUrl}`);
 } catch (err) {
   console.error(err);
   process.exit(1);
