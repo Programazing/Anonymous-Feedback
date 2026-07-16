@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
+import fastifyHelmet from "@fastify/helmet";
 import {
   insertFeedback,
   getUnreviewedFeedback,
@@ -17,6 +18,26 @@ const publicDir = path.resolve(__dirname, "../public");
 const app = Fastify({
   logger: false,
   bodyLimit: 16 * 1024
+});
+
+await app.register(fastifyHelmet, {
+  referrerPolicy: { policy: "no-referrer" },
+  frameguard: { action: "deny" },
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:"],
+      fontSrc: ["'self'"],
+      connectSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"]
+    }
+  }
 });
 
 await app.register(fastifyStatic, {
