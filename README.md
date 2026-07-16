@@ -36,6 +36,7 @@ For real-world use, protect the admin route with a reverse proxy, basic auth, or
 | Static files | `@fastify/static` | With `serve: false`, files are only exposed through explicit routes. |
 | Database | SQLite | Simple embedded storage, appropriate for a small single-app deployment. |
 | SQLite driver | `better-sqlite3` | Supports straightforward prepared statements and direct access patterns. |
+| Security headers | `@fastify/helmet` | Applies a strict Content Security Policy, `Referrer-Policy: no-referrer`, and `X-Frame-Options: DENY`. |
 
 ## Features
 
@@ -44,6 +45,8 @@ For real-world use, protect the admin route with a reverse proxy, basic auth, or
 - Sunday-only unread review gate.
 - Separate reviewed and unread views in admin.
 - Randomized public and admin paths via environment variables.
+- Admin page and admin API protected by a shared `ADMIN_TOKEN` secret.
+- Strict Content Security Policy and other security headers via `@fastify/helmet`.
 - Startup logs that can print the full public and admin URLs.
 - Minimal database schema.
 
@@ -76,11 +79,12 @@ anonymous-feedback/
 ### Admin flow
 
 1. An admin opens the randomized admin URL.
-2. The admin page requests unread feedback from `/api/admin/feedback/unreviewed`.
-3. If the current server day is not Sunday, the server returns `403` and the page shows a locked message.
-4. If it is Sunday, unread feedback is returned.
-5. When the admin marks an item as reviewed, the app updates that row to `reviewed = 1`.
-6. Reviewed items are available from `/api/admin/feedback/reviewed`.
+2. The admin page requests unread feedback from `/api/admin/feedback/unreviewed`, sending the `x-admin-token` header.
+3. If the token is missing or wrong, the server returns `401`.
+4. If the current server day is not Sunday, the server returns `403` and the page shows a locked message.
+5. If it is Sunday, unread feedback is returned.
+6. When the admin marks an item as reviewed, the app updates that row to `reviewed = 1`.
+7. Reviewed items are available from `/api/admin/feedback/reviewed` (also token-protected).
 
 ### Why there is no `submitted_at`
 
@@ -105,9 +109,9 @@ SQLite does not provide a dedicated Boolean storage type in the way many other d
 | Method | Route | Purpose |
 |---|---|---|
 | `POST` | `/api/feedback` | Submit anonymous feedback. |
-| `GET` | `/api/admin/feedback/unreviewed` | Get unread feedback, but only on Sunday. |
-| `GET` | `/api/admin/feedback/reviewed` | Get reviewed feedback. |
-| `POST` | `/api/admin/feedback/:id/review` | Mark one item as reviewed. |
+| `GET` | `/api/admin/feedback/unreviewed` | Get unread feedback, but only on Sunday. Requires `x-admin-token`. |
+| `GET` | `/api/admin/feedback/reviewed` | Get reviewed feedback. Requires `x-admin-token`. |
+| `POST` | `/api/admin/feedback/:id/review` | Mark one item as reviewed. Requires `x-admin-token`. |
 
 ### `POST /api/feedback`
 
@@ -137,14 +141,16 @@ Success response:
 }
 ```
 
-Example error response:
+Example error response (validation failure):
 
 ```json
 {
   "ok": false,
-  "error": "Feedback must be at least 10 characters."
+  "error": "Invalid request."
 }
 ```
+
+Validation errors are intentionally reported with a generic message so that request-body details are not echoed back in responses or logs.
 
 ## Setup
 
@@ -167,7 +173,7 @@ npm install
 ### Required packages
 
 ```bash
-npm install fastify @fastify/static better-sqlite3
+npm install fastify @fastify/static @fastify/helmet better-sqlite3
 ```
 
 ## Configuration
@@ -243,7 +249,7 @@ Public feedback URL: http://localhost:3000/f/1c3f4d9a7b21e8d44f8c1a0b
 Admin review URL logging disabled (set LOG_ADMIN_URL=true to enable).
 ```
 
-Printing the full admin URL is convenient, but it also makes that log output sensitive operational data. OWASP guidance warns against exposing sensitive information in logs, so admin URL logging is disabled by default. Set `LOG_ADMIN_URL=true` to include it (and restrict access to deployment logs accordingly). Similarly, `LOG_PUBLIC_URL=false` suppresses the public URL line.
+Printing the full admin URL is convenient, but it also makes that log output sensitive operational data. OWASP guidance warns against exposing sensitive information in logs, so admin URL logging is disabled by default. Set `LOG_ADMIN_URL=true` to include it (and restrict access to deployment logs accordingly). Similarly, `LOG_PUBLIC_URL=false` replaces the public URL line with a `Public feedback URL logging disabled` notice.
 
 ## Using the app
 
