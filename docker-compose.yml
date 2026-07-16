@@ -1,0 +1,17 @@
+services:
+  app:
+    build: .
+    image: anonymous-feedback:latest
+    container_name: anonymous-feedback
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override host/port defaults so the app is reachable from outside the container.
+      HOST: 0.0.0.0
+      PORT: 3000
+      DB_PATH: /app/data/feedback.sqlite
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - ./data:/app/data

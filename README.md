@@ -241,6 +241,31 @@ npm start
 node --env-file=.env src/server.js
 ```
 
+### Run with Docker Compose
+
+The repository includes a `Dockerfile` and a `docker-compose.yml` so the app can be launched with a single command.
+
+1. Create a `.env` file (copy from `.env.example` and set strong values for `PUBLIC_PATH`, `ADMIN_PATH`, and `ADMIN_TOKEN`).
+2. Build and start the container:
+
+   ```bash
+   docker compose up -d --build
+   ```
+
+3. The app will be available on `http://localhost:${PORT:-3000}`.
+4. The SQLite database is persisted on the host under `./data/feedback.sqlite` via a bind mount.
+
+To stop and remove the container:
+
+```bash
+docker compose down
+```
+
+Notes:
+
+- Inside the container, `HOST` is forced to `0.0.0.0` and `DB_PATH` to `/app/data/feedback.sqlite`; other variables (including `PUBLIC_BASE_URL`, `PUBLIC_PATH`, `ADMIN_PATH`, `ADMIN_TOKEN`) are read from `.env`.
+- The published host port defaults to `3000` and can be overridden with the `PORT` variable in `.env`.
+
 ### Example startup output
 
 ```text
