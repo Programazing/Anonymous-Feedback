@@ -294,8 +294,15 @@ export async function buildApp() {
         : 500;
 
     if (statusCode >= 500) {
-      const safeUrl = (request.raw.url || request.url || "").split("?")[0];
-      console.error(`[error] ${request.method} ${safeUrl} -> ${statusCode}`);
+      // Log only the matched route pattern (e.g. "/api/admin/feedback/:id/review"),
+      // never request.raw.url. This prevents randomized admin paths, query strings,
+      // and any tokens from ever reaching stdout/stderr. If the route is unknown
+      // (e.g. 404-turned-500), fall back to a generic marker.
+      const routePattern =
+          (request.routeOptions && request.routeOptions.url) ||
+          request.routerPath ||
+          "<unmatched>";
+      console.error(`[error] ${request.method} ${routePattern} -> ${statusCode}`);
       return reply.code(500).send({ ok: false, error: "Internal error." });
     }
 
@@ -329,10 +336,16 @@ if (isMain) {
     await app.listen({ port, host });
 
     const publicUrl = `${publicBaseUrl}${normalizedPublicPath}`;
-    const adminUrl = `${publicBaseUrl}${normalizedAdminPath}`;
 
-    const logPublicUrl = envFlag(process.env.LOG_PUBLIC_URL, true);
-    const logAdminUrl = envFlag(process.env.LOG_ADMIN_URL, false);
+    // LOG_PUBLIC_URL default is environment-aware: in production we default to
+    // false so the randomized public path is not written to persistent logs
+    // (log aggregators, container stdout, etc.). In non-production the URL is
+    // convenient to have printed for local development.
+    // LOG_ADMIN_URL is intentionally NOT read: the admin URL is sensitive
+    // operational data and is never logged, regardless of environment. To see
+    // it, read it from the .env file directly on the host.
+    const isProduction = process.env.NODE_ENV === "production";
+    const logPublicUrl = envFlag(process.env.LOG_PUBLIC_URL, !isProduction);
 
     console.log(`Server listening on ${publicBaseUrl}`);
     if (logPublicUrl) {
@@ -340,11 +353,7 @@ if (isMain) {
     } else {
       console.log("Public feedback URL logging disabled (set LOG_PUBLIC_URL=true to enable).");
     }
-    if (logAdminUrl) {
-      console.log(`Admin review URL: ${adminUrl}`);
-    } else {
-      console.log("Admin review URL logging disabled (set LOG_ADMIN_URL=true to enable).");
-    }
+    console.log("Admin review URL is not logged. Read ADMIN_PATH from your .env file to obtain it.");
   } catch (err) {
     console.error(err);
     process.exit(1);

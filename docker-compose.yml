@@ -13,8 +13,11 @@ services:
       PUBLIC_PATH: ${PUBLIC_PATH}
       ADMIN_PATH: ${ADMIN_PATH}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
-      LOG_PUBLIC_URL: ${LOG_PUBLIC_URL:-true}
-      LOG_ADMIN_URL: ${LOG_ADMIN_URL:-false}
+      # Default to false in containerized deployments so the randomized
+      # PUBLIC_PATH does not end up in `docker logs` / log aggregators.
+      # Set LOG_PUBLIC_URL=true in your .env only when temporarily debugging.
+      # LOG_ADMIN_URL was intentionally removed: the admin URL is never logged.
+      LOG_PUBLIC_URL: ${LOG_PUBLIC_URL:-false}
     expose:
       - "3000"
     volumes:

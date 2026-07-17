@@ -208,8 +208,8 @@ The app can be configured with environment variables.
 | `PUBLIC_PATH` | Randomized public feedback path | `/f/1c3f4d9a7b21e8d44f8c1a0b` |
 | `ADMIN_PATH` | Randomized admin path | `/r/8aa2e1f4d7c903b18d2f6c55` |
 | `ADMIN_TOKEN` | Secret token required for the admin page and admin API (min 16 chars). Sent only as the `x-admin-token` request header — query-string tokens are not accepted. | `s3cret-admin-token-please-change` |
-| `LOG_PUBLIC_URL` | Whether to print the full public feedback URL at startup. Defaults to `true`. | `true` |
-| `LOG_ADMIN_URL` | Whether to print the full admin review URL at startup. Defaults to `false` to keep sensitive operational data out of logs (OWASP guidance). | `false` |
+| `LOG_PUBLIC_URL` | Whether to print the full public feedback URL (including `PUBLIC_PATH`) at startup. Defaults to `false` when `NODE_ENV=production`, and `true` otherwise. Set to `true` temporarily to debug on a production host, then unset. | `false` |
+| ~~`LOG_ADMIN_URL`~~ | **Removed.** The admin review URL is never printed to logs, regardless of environment. Read `ADMIN_PATH` from your `.env` on the host to obtain it. | — |
 | `DB_PATH` | Override the SQLite database file path. Defaults to `data/feedback.sqlite`. Primarily used by the test suite to isolate a temporary database. | `/tmp/afb-test/feedback.sqlite` |
 | `FEEDBACK_RATE_MAX` | Max `POST /api/feedback` submissions per IP per window. Defaults to `7`. | `5` |
 | `FEEDBACK_RATE_WINDOW` | Time window for `FEEDBACK_RATE_MAX`. Accepts `@fastify/rate-limit` duration strings or milliseconds. Defaults to `1 minute`. | `1 minute` |
@@ -225,8 +225,7 @@ PUBLIC_BASE_URL=http://localhost:3000
 PUBLIC_PATH=/f/1c3f4d9a7b21e8d44f8c1a0b
 ADMIN_PATH=/r/8aa2e1f4d7c903b18d2f6c55
 ADMIN_TOKEN=s3cret-admin-token-please-change
-LOG_PUBLIC_URL=true
-LOG_ADMIN_URL=false
+LOG_PUBLIC_URL=false
 ```
 
 ### Generating randomized paths
@@ -292,11 +291,41 @@ Notes:
 
 ```text
 Server listening on http://localhost:3000
-Public feedback URL: http://localhost:3000/f/1c3f4d9a7b21e8d44f8c1a0b
-Admin review URL logging disabled (set LOG_ADMIN_URL=true to enable).
+Public feedback URL logging disabled (set LOG_PUBLIC_URL=true to enable).
+Admin review URL is not logged. Read ADMIN_PATH from your .env file to obtain it.
 ```
 
-Printing the full admin URL is convenient, but it also makes that log output sensitive operational data. OWASP guidance warns against exposing sensitive information in logs, so admin URL logging is disabled by default. Set `LOG_ADMIN_URL=true` to include it (and restrict access to deployment logs accordingly). Similarly, `LOG_PUBLIC_URL=false` replaces the public URL line with a `Public feedback URL logging disabled` notice.
+### Safe logging practices
+
+The app is designed so that sensitive operational data — randomized `PUBLIC_PATH` and `ADMIN_PATH`, the `ADMIN_TOKEN`, and any query strings — cannot appear in logs by default. OWASP guidance warns that log aggregators, container stdout, and archived log files should not be trusted with secrets.
+
+What **is** logged:
+
+- A single `Server listening on <PUBLIC_BASE_URL>` line at startup.
+- For 5xx errors, a `[error] <METHOD> <ROUTE_PATTERN> -> <STATUS>` line, where `<ROUTE_PATTERN>` is the Fastify route template (e.g. `/api/admin/feedback/:id/review`) — never `request.url`, so randomized paths, ids, and query strings are not written to logs.
+- Shutdown signals (`SIGINT` / `SIGTERM`).
+
+What is **never** logged:
+
+- The admin URL / `ADMIN_PATH` (regardless of `NODE_ENV`).
+- `ADMIN_TOKEN` or any request header.
+- Raw request URLs, query strings, request bodies, or client IPs.
+- Feedback submissions.
+
+Defaults per environment:
+
+- `NODE_ENV=production`: `LOG_PUBLIC_URL` defaults to `false`. The public URL line is replaced with a `Public feedback URL logging disabled` notice.
+- Non-production (local dev): `LOG_PUBLIC_URL` defaults to `true` for convenience.
+
+#### Temporarily enabling verbose logging for debugging
+
+If you need to confirm the public URL a running production instance is serving, or diagnose a startup issue, do the following on the host — **not** by adding permanent config:
+
+1. Export the flag inline for a single run, e.g. `LOG_PUBLIC_URL=true node src/server.js` (or `docker compose run --rm -e LOG_PUBLIC_URL=true app`).
+2. Copy the URL from stdout.
+3. Do **not** commit `LOG_PUBLIC_URL=true` to your `.env` on a production host, and do not enable a global request logger. If you must enable Fastify's built-in request logger (`logger: true` in `src/server.js`) for deep debugging, do it on a scratch instance, redirect logs to a file readable only by you, and revert the change before redeploying.
+
+There is no supported way to log the admin URL — that is deliberate. Read `ADMIN_PATH` directly from the host's `.env` file when you need it.
 
 ## Using the app
 
