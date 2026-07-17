@@ -431,6 +431,34 @@ This means the intended behavior is:
 - Only the randomized public path serves the feedback page.
 - Only the randomized admin path serves the admin page.
 
+## Deployment behind Traefik / Dokploy
+
+This app is designed to run behind a reverse proxy (Traefik, as configured by Dokploy). A few assumptions follow from that:
+
+- **Bind address.** Inside the container the app listens on `0.0.0.0:${PORT:-3000}`. Traefik reaches it on the internal Docker network; the container port is not published to the host in production.
+- **Trusted proxy.** Fastify is initialized with `trustProxy: true` (see `src/server.js`). This means:
+  - `request.ip` reflects the real client IP taken from `X-Forwarded-For` (the left-most non-proxy address), not Traefik's internal container IP.
+  - `request.protocol` and `request.hostname` follow `X-Forwarded-Proto` / `X-Forwarded-Host`, so redirects and logs use the externally visible scheme/host.
+  - The per-IP rate limiter (`@fastify/rate-limit`, see the "Abuse protection" section) keys on `request.ip`, so limits are applied per **real client IP**, not per proxy.
+- **Only trust proxies you control.** `trustProxy: true` is safe here because the only network path to the app is through Traefik on the Docker network. Do **not** publish the container port directly to the internet with `trustProxy: true` enabled — clients could then forge `X-Forwarded-For` and bypass the rate limiter.
+- **Entrypoints.** The Dokploy/Traefik router is currently attached to the `web` (HTTP, port 80) entrypoint because the deployment domain (e.g. an `sslip.io` hostname) does not have a TLS certificate. Once the app is moved to a domain with a valid certificate, the router should be switched to the `websecure` (HTTPS, port 443) entrypoint and a redirect from `web` → `websecure` should be added.
+- **`PUBLIC_BASE_URL`.** In HTTP-only deployments this is `http://<host>`. Once TLS is available it **must** be updated to `https://<host>` so that links printed at startup and any absolute URLs match the entrypoint clients actually reach.
+
+### Checklist: migrating from HTTP to HTTPS
+
+When the deployment domain gains a valid TLS certificate (Let's Encrypt via Traefik, or an uploaded cert), work through this list:
+
+1. Confirm Traefik has a working certresolver (e.g. `letsencrypt`) and that the domain resolves to the Traefik host.
+2. In Dokploy (or the Traefik dynamic config), switch the router's `entrypoints` from `web` to `websecure` and set `tls.certresolver` (or `tls: true` with an uploaded cert).
+3. Add a second router on the `web` entrypoint that redirects everything to `https://` (Traefik `redirectscheme` middleware, `scheme=https`, `permanent=true`).
+4. Update `PUBLIC_BASE_URL` in the deployment's `.env` to the `https://…` form and redeploy.
+5. Verify externally:
+   - `curl -I http://<host>/<PUBLIC_PATH>` returns a `301`/`308` to `https://…`.
+   - `curl -I https://<host>/<PUBLIC_PATH>` returns `200` and a valid certificate.
+   - The startup log line `Server listening on https://<host>` matches the certificate's CN/SAN.
+6. Consider enabling HSTS at Traefik (`Strict-Transport-Security`) once you're confident the domain will stay on HTTPS. Do **not** enable HSTS while still testing on plain HTTP — browsers will remember it.
+7. Optionally, add a production-only guard so the app refuses to start when `NODE_ENV=production` and `PUBLIC_BASE_URL` does not begin with `https://`. This is intentionally **not** enforced today because the current `sslip.io`-style host is HTTP-only.
+
 ## Security notes
 
 This application aims for simplicity and privacy, but it is not a complete hardened anonymous reporting system. Hidden URLs are not a replacement for access control, and the admin route should be protected with a reverse proxy and authentication.
