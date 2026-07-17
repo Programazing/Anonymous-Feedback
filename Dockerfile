@@ -26,6 +26,14 @@ COPY public ./public
 RUN mkdir -p /app/data \
     && chown -R node:node /app
 
+# /app/data holds the SQLite database file (feedback.sqlite) plus its WAL
+# and SHM sidecar files. It MUST be persisted across container restarts and
+# rebuilds — mount a named Docker volume (see docker-compose.yml) or a host
+# bind mount owned by uid 1000 (the "node" user). The application will fail
+# fast with a clear error if the directory is missing or not writable.
+# See README.md ("Backup and restore") for online backup procedure.
+VOLUME ["/app/data"]
+
 USER node
 
 EXPOSE 3000

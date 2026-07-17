@@ -118,11 +118,97 @@ The application uses a single table:
 CREATE TABLE IF NOT EXISTS feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   body TEXT NOT NULL,
-  reviewed INTEGER NOT NULL DEFAULT 0 CHECK (reviewed IN (0, 1))
+  reviewed INTEGER NOT NULL DEFAULT 0 CHECK (reviewed IN (0, 1)),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  reviewed_at TEXT
 );
 ```
 
 SQLite does not provide a dedicated Boolean storage type in the way many other databases do, so `INTEGER` with `0` and `1` is the practical pattern for a field like `reviewed`.
+
+`created_at` and `reviewed_at` are lightweight audit columns stored as ISO-8601 UTC strings. They are set by the database (via `strftime`) so the app never has to trust a client clock. `created_at` records when a feedback row was inserted; `reviewed_at` is `NULL` until an admin marks the row as reviewed. Existing databases created before these columns existed are migrated in place at startup (`ALTER TABLE ... ADD COLUMN`, backfilled with the current timestamp).
+
+Note: `created_at` is a per-row insertion timestamp, not a user-visible submission time. It is used only for internal auditing (e.g. backup/restore verification, spam-rate investigation) and is never returned by the public `POST /api/feedback` endpoint. Admin endpoints currently do not surface it either — see “Why there is no `submitted_at`” above.
+
+### SQLite pragmas
+
+`src/data.js` applies these pragmas at startup:
+
+| Pragma | Value | Reason |
+|---|---|---|
+| `journal_mode` | `WAL` | Allows readers to proceed while a single writer commits — important because Fastify is concurrent. |
+| `busy_timeout` | `5000` (ms) | On lock contention, SQLite waits up to 5 s instead of immediately throwing `SQLITE_BUSY`. Dramatically reduces spurious errors under bursty writes. |
+| `synchronous` | `NORMAL` | Safe with WAL and noticeably faster than `FULL`. |
+| `foreign_keys` | `ON` | Enforces FK constraints for any future related tables. |
+
+### Startup failure modes
+
+The database initialization is designed to fail fast with actionable errors instead of leaving the process in a half-working state:
+
+- **Missing / unwritable data directory** — `src/data.js` calls `fs.mkdirSync` and `fs.accessSync(W_OK)` before opening SQLite. If the directory cannot be created or is read-only, the process exits with a message pointing at the exact path and (in Docker) the `node` user permission requirement.
+- **Corrupt or unreadable database file** — `new Database(dbPath)` is wrapped in a `try/catch` that re-throws with the file path included. The container will crash-loop instead of accepting writes into a broken file.
+- **Runtime DB failure** — the `/healthz` endpoint (when `ENABLE_HEALTHCHECK=true`) calls `pingDatabase()` and returns HTTP `503` if a trivial `SELECT 1` fails, so orchestrators (Docker Compose, Kubernetes, Dokploy) can mark the container unhealthy and restart it.
+
+## Backup and restore
+
+The database lives in a single directory (`/app/data` in the container, `data/` in local development) that contains `feedback.sqlite` plus its WAL/SHM sidecar files. Because SQLite uses a WAL, **do not** copy `feedback.sqlite` alone with `cp` while the app is running — you will get a torn snapshot missing the most recent commits.
+
+### Recommended: online backup via SQLite's backup API
+
+`better-sqlite3` exposes SQLite's official [Online Backup API](https://www.sqlite.org/backup.html), which produces a consistent snapshot without stopping the app:
+
+```bash
+# Inside the running container (writes to the same volume):
+docker compose exec app node -e "
+  const Database = require('better-sqlite3');
+  const db = new Database(process.env.DB_PATH, { readonly: true });
+  db.backup(process.env.DB_PATH + '.backup')
+    .then(() => { console.log('backup ok'); process.exit(0); })
+    .catch((e) => { console.error(e); process.exit(1); });
+"
+
+# Then copy the snapshot out of the container:
+docker compose cp app:/app/data/feedback.sqlite.backup ./feedback-$(date +%F).sqlite
+```
+
+The resulting file is a self-contained SQLite database (no WAL needed) and can be opened with the `sqlite3` CLI, DB Browser for SQLite, etc.
+
+### Alternative: cold copy (requires downtime)
+
+If the app is stopped, the on-disk file is consistent and can be copied directly:
+
+```bash
+docker compose stop app
+docker compose cp app:/app/data/feedback.sqlite ./feedback-$(date +%F).sqlite
+docker compose start app
+```
+
+### Restore
+
+Always restore into a **stopped** container so no WAL is being written:
+
+```bash
+docker compose stop app
+docker compose cp ./feedback-YYYY-MM-DD.sqlite app:/app/data/feedback.sqlite
+# Remove stale WAL/SHM sidecars so SQLite rebuilds them from the restored file:
+docker compose run --rm --entrypoint sh app -c 'rm -f /app/data/feedback.sqlite-wal /app/data/feedback.sqlite-shm'
+docker compose start app
+```
+
+On startup the app will fail fast if the restored file is unreadable or the directory has the wrong permissions — check `docker compose logs app` for the exact error.
+
+### Backing up the Docker volume itself
+
+For disaster-recovery snapshots of the whole volume (schema + data + any future files), tar the named volume from a throwaway container:
+
+```bash
+docker run --rm \
+  -v anonymous-feedback_anonymous_feedback_data:/data:ro \
+  -v "$PWD":/backup \
+  busybox tar czf /backup/anonymous_feedback_data-$(date +%F).tar.gz -C /data .
+```
+
+Adjust the volume name to match `docker volume ls` output (Compose prefixes it with the project name).
 
 ## API overview
 

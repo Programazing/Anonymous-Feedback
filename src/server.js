@@ -10,7 +10,8 @@ import {
   getUnreviewedFeedback,
   getReviewedFeedback,
   markFeedbackReviewed,
-  closeDatabase
+  closeDatabase,
+  pingDatabase
 } from "./data.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -157,8 +158,15 @@ export async function buildApp() {
   // container-internal healthchecks (e.g. `docker compose` healthcheck) reach
   // it without a public route.
   if (enableHealthcheck) {
-    app.get("/healthz", async () => {
-      return { ok: true };
+    app.get("/healthz", async (request, reply) => {
+      // Readiness-style probe: also verifies the SQLite database is open
+      // and responsive. Returns 503 if the DB cannot be queried so the
+      // orchestrator can restart / mark the container unhealthy quickly.
+      const dbOk = pingDatabase();
+      if (!dbOk) {
+        return reply.code(503).send({ ok: false, db: false });
+      }
+      return { ok: true, db: true };
     });
   }
 

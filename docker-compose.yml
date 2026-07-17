@@ -28,6 +28,22 @@ services:
       ENABLE_DEBUG_ROUTES: ${ENABLE_DEBUG_ROUTES:-false}
     expose:
       - "3000"
+    # Persistent storage for the SQLite database.
+    #
+    # /app/data contains feedback.sqlite (+ WAL/SHM sidecars). It MUST survive
+    # container restarts and image rebuilds. The app fails fast on startup if
+    # the directory is missing or not writable by the "node" user (uid 1000).
+    #
+    # Backup (online-safe, uses SQLite's backup API — no downtime):
+    #   docker compose exec app node -e "new (require('better-sqlite3'))(process.env.DB_PATH).backup('/app/data/feedback.backup.sqlite').then(()=>console.log('ok'))"
+    #   docker compose cp app:/app/data/feedback.backup.sqlite ./feedback.backup.sqlite
+    #
+    # Restore (stop the app first so no WAL is active):
+    #   docker compose stop app
+    #   docker compose cp ./feedback.backup.sqlite app:/app/data/feedback.sqlite
+    #   docker compose start app
+    #
+    # See README.md ("Backup and restore") for details.
     volumes:
       - anonymous_feedback_data:/app/data
     networks:
