@@ -33,7 +33,7 @@ const normalizedAdminPath = normalizePath(adminPath, "/r/replace-me");
 
 export async function buildApp() {
   const app = Fastify({
-    logger: false,
+    logger: true,
     bodyLimit: 16 * 1024
   });
 
@@ -103,12 +103,23 @@ export async function buildApp() {
     return now.getDay() === 0;
   }
 
+  app.addHook("onRequest", async (request) => {
+    app.log.info({
+      method: request.method,
+      url: request.url,
+      normalizedPublicPath,
+      normalizedAdminPath
+    }, "incoming request");
+  });
+
   app.addHook("onSend", async (request, reply, payload) => {
     const url = request.raw.url || "";
     const routeUrl = url.split("?")[0];
     if (
         routeUrl === normalizedPublicPath ||
         routeUrl === normalizedAdminPath ||
+        routeUrl === "/debug/routes" ||
+        routeUrl === "/healthz" ||
         routeUrl.startsWith("/api/")
     ) {
       reply.header("Cache-Control", "no-store");
@@ -116,13 +127,23 @@ export async function buildApp() {
     return payload;
   });
 
+  app.get("/healthz", async () => {
+    return {
+      ok: true,
+      port,
+      host
+    };
+  });
+
   app.get("/debug/routes", async () => {
     return {
+      ok: true,
       publicPath: normalizedPublicPath,
       adminPath: normalizedAdminPath,
       host,
       port,
-      publicBaseUrl
+      publicBaseUrl,
+      cwd: process.cwd()
     };
   });
 
@@ -131,10 +152,12 @@ export async function buildApp() {
   });
 
   app.get(normalizedPublicPath, async (request, reply) => {
+    app.log.info({ file: "index.html" }, "serving public form");
     return reply.sendFile("index.html");
   });
 
   app.get(normalizedAdminPath, { preHandler: requireAdminToken }, async (request, reply) => {
+    app.log.info({ file: "admin.html" }, "serving admin page");
     return reply.sendFile("admin.html");
   });
 
@@ -213,6 +236,7 @@ export async function buildApp() {
   });
 
   app.setNotFoundHandler((request, reply) => {
+    app.log.warn({ url: request.url }, "route not found");
     reply.code(404).send({ ok: false, error: "Not found." });
   });
 
@@ -222,7 +246,7 @@ export async function buildApp() {
         : 500;
 
     if (statusCode >= 500) {
-      console.error(`[error] ${request.method} ${request.url} -> ${statusCode}: ${error.message}`);
+      app.log.error({ err: error, method: request.method, url: request.url }, "request failed");
       return reply.code(500).send({ ok: false, error: "Internal error." });
     }
 
@@ -239,7 +263,7 @@ export async function buildApp() {
   return app;
 }
 
-const isMain = import.meta.url === `file://${process.argv[1]}`;
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 
 if (isMain) {
   const app = await buildApp();
@@ -252,6 +276,15 @@ if (isMain) {
 
     const logPublicUrl = (process.env.LOG_PUBLIC_URL ?? "true").toLowerCase() !== "false";
     const logAdminUrl = (process.env.LOG_ADMIN_URL ?? "false").toLowerCase() === "true";
+
+    app.log.info({
+      port,
+      host,
+      publicBaseUrl,
+      normalizedPublicPath,
+      normalizedAdminPath,
+      cwd: process.cwd()
+    }, "server configuration");
 
     console.log(`Server listening on ${publicBaseUrl}`);
     if (logPublicUrl) {
