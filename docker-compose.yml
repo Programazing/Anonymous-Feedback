@@ -8,7 +8,7 @@ services:
     environment:
       HOST: ${HOST:-0.0.0.0}
       PORT: ${PORT:-3000}
-      DB_PATH: /app/data/feedback.sqlite
+      DB_PATH: ${DB_PATH:-/app/data/feedback.sqlite}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
       PUBLIC_PATH: ${PUBLIC_PATH}
       ADMIN_PATH: ${ADMIN_PATH}
@@ -18,9 +18,19 @@ services:
     expose:
       - "3000"
     volumes:
-      - ./data:/app/data
+      - anonymous_feedback_data:/app/data
     networks:
       - dokploy-network
+      - default
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.anonymous-feedback.rule=Host(`anonymous-feedback-fghjfghjfghsdfg-grlpi-b3c6cc-31-97-103-251.sslip.io`)
+      - traefik.http.routers.anonymous-feedback.entrypoints=web
+      - traefik.http.services.anonymous-feedback.loadbalancer.server.port=3000
+
+volumes:
+  anonymous_feedback_data:
 
 networks:
   dokploy-network:
