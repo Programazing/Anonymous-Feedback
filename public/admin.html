@@ -115,7 +115,16 @@
     const unreviewedList = document.getElementById("unreviewed-list");
     const reviewedList = document.getElementById("reviewed-list");
 
-    const adminToken = new URLSearchParams(window.location.search).get("token") || "";
+    // The admin token is never read from the URL. It is kept only in memory
+    // for the lifetime of this page (sessionStorage), so it does not appear
+    // in browser history, server access logs, or Referer headers.
+    let adminToken = sessionStorage.getItem("adminToken") || "";
+    if (!adminToken) {
+      adminToken = window.prompt("Enter admin token:") || "";
+      if (adminToken) {
+        sessionStorage.setItem("adminToken", adminToken);
+      }
+    }
 
     function adminFetch(url, options = {}) {
       const headers = Object.assign({}, options.headers || {}, {

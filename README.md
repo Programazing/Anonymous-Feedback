@@ -188,7 +188,7 @@ The app can be configured with environment variables.
 | `PUBLIC_BASE_URL` | Base URL used in startup logs | `https://feedback.example.com` |
 | `PUBLIC_PATH` | Randomized public feedback path | `/f/1c3f4d9a7b21e8d44f8c1a0b` |
 | `ADMIN_PATH` | Randomized admin path | `/r/8aa2e1f4d7c903b18d2f6c55` |
-| `ADMIN_TOKEN` | Secret token required for the admin page and admin API (min 16 chars). Sent as `x-admin-token` header or `?token=` query param. | `s3cret-admin-token-please-change` |
+| `ADMIN_TOKEN` | Secret token required for the admin page and admin API (min 16 chars). Sent only as the `x-admin-token` request header — query-string tokens are not accepted. | `s3cret-admin-token-please-change` |
 | `LOG_PUBLIC_URL` | Whether to print the full public feedback URL at startup. Defaults to `true`. | `true` |
 | `LOG_ADMIN_URL` | Whether to print the full admin review URL at startup. Defaults to `false` to keep sensitive operational data out of logs (OWASP guidance). | `false` |
 | `DB_PATH` | Override the SQLite database file path. Defaults to `data/feedback.sqlite`. Primarily used by the test suite to isolate a temporary database. | `/tmp/afb-test/feedback.sqlite` |
@@ -292,30 +292,30 @@ There is no reply link, no receipt code, and no edit token. That keeps the publi
 
 ### Reviewing feedback
 
-1. Open the admin URL, appending the admin token as a `?token=...` query parameter (see [Passing the admin token in a browser](#passing-the-admin-token-in-a-browser)).
-2. If it is Sunday, unread items are displayed.
-3. If it is not Sunday, the unread section remains locked.
-4. Reviewed items are shown in a separate list.
-5. Click **Mark reviewed** to move an item out of the unread list.
+1. Open the randomized admin URL in a browser.
+2. The admin page prompts once for the admin token and keeps it in `sessionStorage` for the lifetime of the tab. The token is sent as the `x-admin-token` header on every admin API call.
+3. If it is Sunday, unread items are displayed.
+4. If it is not Sunday, the unread section remains locked.
+5. Reviewed items are shown in a separate list.
+6. Click **Mark reviewed** to move an item out of the unread list.
 
-### Passing the admin token in a browser
+### Passing the admin token
 
-The admin page and admin API require the `ADMIN_TOKEN` secret. In a browser, pass it by appending it as a `?token=...` query parameter to the admin URL:
+The admin page and admin API require the `ADMIN_TOKEN` secret. The server accepts it **only** as the `x-admin-token` request header. Query-string tokens (`?token=...`) are not accepted and, since v2, are rejected as unauthenticated.
 
-```
-http://localhost:3000/r/8aa2e1f4d7c903b18d2f6c55?token=your-admin-token
-```
+In a browser:
 
-The admin page (`public/admin.html`) reads `token` from the URL and automatically forwards it as the `x-admin-token` header on every subsequent admin API call, so you only need to include it once when opening the page.
+- Open the randomized admin URL (without any token in the URL).
+- When prompted, paste the `ADMIN_TOKEN` value. It is stored in `sessionStorage` for the tab and included on every admin API call as `x-admin-token`.
+- To clear it, close the tab or run `sessionStorage.removeItem("adminToken")` in the browser dev tools.
 
-Tips:
+Why no query-string token:
 
-- Bookmark the full URL (path + `?token=...`) so you don't have to type it each time.
-- Keep the tab/window private — the token is visible in the address bar and browser history.
-- To avoid the token appearing in server access logs, use a browser extension (e.g. ModHeader) to send `x-admin-token` as a header instead, and open the admin URL without the query string.
-- Rotate `ADMIN_TOKEN` in your `.env` if it may have been exposed.
+- Tokens in URLs leak into browser history, `Referer` headers, reverse-proxy access logs, and error logs.
+- The header-only flow keeps the secret out of the address bar and out of any URL-based log line.
+- Rotate `ADMIN_TOKEN` in your `.env` if you suspect it has been exposed.
 
-For non-browser clients (e.g. `curl`), send the token as a header instead:
+For non-browser clients (e.g. `curl`), send the token as a header:
 
 ```bash
 curl -H "x-admin-token: your-admin-token" http://localhost:3000/api/admin/feedback/reviewed

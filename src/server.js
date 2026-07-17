@@ -109,12 +109,7 @@ export async function buildApp() {
 
   async function requireAdminToken(request, reply) {
     const headerToken = request.headers["x-admin-token"];
-    const queryToken = request.query && request.query.token;
-    const provided = typeof headerToken === "string"
-        ? headerToken
-        : typeof queryToken === "string"
-            ? queryToken
-            : "";
+    const provided = typeof headerToken === "string" ? headerToken : "";
 
     if (!timingSafeEqualStr(provided, adminToken)) {
       return reply.code(401).send({ ok: false, error: "Unauthorized." });
@@ -171,7 +166,11 @@ export async function buildApp() {
     return reply.sendFile("index.html");
   });
 
-  app.get(normalizedAdminPath, { preHandler: requireAdminToken }, async (request, reply) => {
+  // The admin HTML page itself is served without a token check because
+  // browsers cannot attach the X-Admin-Token header on a plain navigation.
+  // The page is still protected by the randomized ADMIN_PATH, and every
+  // admin API endpoint below enforces the header token.
+  app.get(normalizedAdminPath, async (request, reply) => {
     return reply.sendFile("admin.html");
   });
 
@@ -265,7 +264,8 @@ export async function buildApp() {
         : 500;
 
     if (statusCode >= 500) {
-      console.error(`[error] ${request.method} ${request.url} -> ${statusCode}: ${error.message}`);
+      const safeUrl = (request.raw.url || request.url || "").split("?")[0];
+      console.error(`[error] ${request.method} ${safeUrl} -> ${statusCode}`);
       return reply.code(500).send({ ok: false, error: "Internal error." });
     }
 
