@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import fastifyHelmet from "@fastify/helmet";
+import fastifyRateLimit from "@fastify/rate-limit";
 import {
   insertFeedback,
   getUnreviewedFeedback,
@@ -23,6 +24,11 @@ function normalizePath(value, fallback) {
   return value.startsWith("/") ? value : `/${value}`;
 }
 
+function envFlag(value, fallback = false) {
+  if (value == null) return fallback;
+  return String(value).toLowerCase() === "true";
+}
+
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "127.0.0.1";
 const publicPath = process.env.PUBLIC_PATH;
@@ -30,11 +36,28 @@ const adminPath = process.env.ADMIN_PATH;
 const publicBaseUrl = process.env.PUBLIC_BASE_URL || `http://localhost:${port}`;
 const normalizedPublicPath = normalizePath(publicPath, "/f/replace-me");
 const normalizedAdminPath = normalizePath(adminPath, "/r/replace-me");
+const enableHealthcheck = envFlag(process.env.ENABLE_HEALTHCHECK, false);
+const enableDebugRoutes = envFlag(process.env.ENABLE_DEBUG_ROUTES, false);
 
 export async function buildApp() {
+  const feedbackRateMax = Number(process.env.FEEDBACK_RATE_MAX || 7);
+  const feedbackRateWindow = process.env.FEEDBACK_RATE_WINDOW || "1 minute";
   const app = Fastify({
-    logger: true,
-    bodyLimit: 16 * 1024
+    logger: false,
+    bodyLimit: 16 * 1024,
+    trustProxy: true
+  });
+
+  await app.register(fastifyRateLimit, {
+    global: false,
+    max: feedbackRateMax,
+    timeWindow: feedbackRateWindow,
+    // Use req.ip so the real client IP (from X-Forwarded-For via trustProxy) is honored.
+    keyGenerator: (request) => request.ip
+    // Note: the friendly 429 JSON body is produced by the app's setErrorHandler,
+    // which reads the Retry-After header set by @fastify/rate-limit. Avoiding a
+    // custom errorResponseBuilder keeps client IPs and request bodies out of the
+    // thrown error object (and therefore out of any error logs).
   });
 
   await app.register(fastifyHelmet, {
@@ -103,23 +126,14 @@ export async function buildApp() {
     return now.getDay() === 0;
   }
 
-  app.addHook("onRequest", async (request) => {
-    app.log.info({
-      method: request.method,
-      url: request.url,
-      normalizedPublicPath,
-      normalizedAdminPath
-    }, "incoming request");
-  });
-
   app.addHook("onSend", async (request, reply, payload) => {
     const url = request.raw.url || "";
     const routeUrl = url.split("?")[0];
     if (
         routeUrl === normalizedPublicPath ||
         routeUrl === normalizedAdminPath ||
-        routeUrl === "/debug/routes" ||
-        routeUrl === "/healthz" ||
+        (enableHealthcheck && routeUrl === "/healthz") ||
+        (enableDebugRoutes && routeUrl === "/debug/routes") ||
         routeUrl.startsWith("/api/")
     ) {
       reply.header("Cache-Control", "no-store");
@@ -127,41 +141,47 @@ export async function buildApp() {
     return payload;
   });
 
-  app.get("/healthz", async () => {
-    return {
-      ok: true,
-      port,
-      host
-    };
-  });
+  if (enableHealthcheck) {
+    app.get("/healthz", async () => {
+      return {
+        ok: true
+      };
+    });
+  }
 
-  app.get("/debug/routes", async () => {
-    return {
-      ok: true,
-      publicPath: normalizedPublicPath,
-      adminPath: normalizedAdminPath,
-      host,
-      port,
-      publicBaseUrl,
-      cwd: process.cwd()
-    };
-  });
+  if (enableDebugRoutes) {
+    app.get("/debug/routes", async () => {
+      return {
+        ok: true,
+        publicPath: normalizedPublicPath,
+        adminPath: normalizedAdminPath,
+        host,
+        port,
+        publicBaseUrl,
+        cwd: process.cwd()
+      };
+    });
+  }
 
   app.get("/", async (request, reply) => {
     return reply.redirect(normalizedPublicPath);
   });
 
   app.get(normalizedPublicPath, async (request, reply) => {
-    app.log.info({ file: "index.html" }, "serving public form");
     return reply.sendFile("index.html");
   });
 
   app.get(normalizedAdminPath, { preHandler: requireAdminToken }, async (request, reply) => {
-    app.log.info({ file: "admin.html" }, "serving admin page");
     return reply.sendFile("admin.html");
   });
 
   app.post("/api/feedback", {
+    config: {
+      rateLimit: {
+        max: feedbackRateMax,
+        timeWindow: feedbackRateWindow
+      }
+    },
     preValidation: async (request) => {
       if (request.body && typeof request.body === "object" && typeof request.body.body === "string") {
         request.body.body = request.body.body.trim();
@@ -236,7 +256,6 @@ export async function buildApp() {
   });
 
   app.setNotFoundHandler((request, reply) => {
-    app.log.warn({ url: request.url }, "route not found");
     reply.code(404).send({ ok: false, error: "Not found." });
   });
 
@@ -246,12 +265,20 @@ export async function buildApp() {
         : 500;
 
     if (statusCode >= 500) {
-      app.log.error({ err: error, method: request.method, url: request.url }, "request failed");
+      console.error(`[error] ${request.method} ${request.url} -> ${statusCode}: ${error.message}`);
       return reply.code(500).send({ ok: false, error: "Internal error." });
     }
 
     if (error.validation) {
       return reply.code(statusCode).send({ ok: false, error: "Invalid request." });
+    }
+
+    if (statusCode === 429) {
+      const retryAfterSec = Number(reply.getHeader("retry-after")) || 60;
+      return reply.code(429).send({
+        ok: false,
+        error: `Too many requests. Please retry in ${retryAfterSec}s.`
+      });
     }
 
     return reply.code(statusCode).send({
@@ -274,17 +301,8 @@ if (isMain) {
     const publicUrl = `${publicBaseUrl}${normalizedPublicPath}`;
     const adminUrl = `${publicBaseUrl}${normalizedAdminPath}`;
 
-    const logPublicUrl = (process.env.LOG_PUBLIC_URL ?? "true").toLowerCase() !== "false";
-    const logAdminUrl = (process.env.LOG_ADMIN_URL ?? "false").toLowerCase() === "true";
-
-    app.log.info({
-      port,
-      host,
-      publicBaseUrl,
-      normalizedPublicPath,
-      normalizedAdminPath,
-      cwd: process.cwd()
-    }, "server configuration");
+    const logPublicUrl = envFlag(process.env.LOG_PUBLIC_URL, true);
+    const logAdminUrl = envFlag(process.env.LOG_ADMIN_URL, false);
 
     console.log(`Server listening on ${publicBaseUrl}`);
     if (logPublicUrl) {

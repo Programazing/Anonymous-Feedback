@@ -47,6 +47,7 @@ For real-world use, protect the admin route with a reverse proxy, basic auth, or
 - Randomized public and admin paths via environment variables.
 - Admin page and admin API protected by a shared `ADMIN_TOKEN` secret.
 - Strict Content Security Policy and other security headers via `@fastify/helmet`.
+- Per-IP rate limiting on `POST /api/feedback` via `@fastify/rate-limit`.
 - Startup logs that can print the full public and admin URLs.
 - Minimal database schema.
 
@@ -191,6 +192,8 @@ The app can be configured with environment variables.
 | `LOG_PUBLIC_URL` | Whether to print the full public feedback URL at startup. Defaults to `true`. | `true` |
 | `LOG_ADMIN_URL` | Whether to print the full admin review URL at startup. Defaults to `false` to keep sensitive operational data out of logs (OWASP guidance). | `false` |
 | `DB_PATH` | Override the SQLite database file path. Defaults to `data/feedback.sqlite`. Primarily used by the test suite to isolate a temporary database. | `/tmp/afb-test/feedback.sqlite` |
+| `FEEDBACK_RATE_MAX` | Max `POST /api/feedback` submissions per IP per window. Defaults to `7`. | `5` |
+| `FEEDBACK_RATE_WINDOW` | Time window for `FEEDBACK_RATE_MAX`. Accepts `@fastify/rate-limit` duration strings or milliseconds. Defaults to `1 minute`. | `1 minute` |
 
 Node exposes environment variables through `process.env`, and current Node versions also support loading them from a file with `--env-file`.
 
@@ -340,6 +343,31 @@ Implementation notes:
 - `src/server.js` exports a `buildApp()` factory so tests can construct a fresh app without triggering `listen()` or signal handlers. The auto-start block only runs when the file is executed directly (`node src/server.js`).
 - `src/data.js` honors a `DB_PATH` environment variable so the test suite can point at a temporary SQLite file (created under the OS temp directory and cleaned up afterwards).
 - The test file sets `PUBLIC_PATH`, `ADMIN_PATH`, `ADMIN_TOKEN`, and `DB_PATH` before importing the server modules, so the app boots in an isolated, deterministic configuration.
+
+## Abuse protection (rate limiting)
+
+To keep the public submission endpoint resistant to floods and spam while preserving a friction-free UX (no CAPTCHA, no login), the app applies a per-IP rate limit on `POST /api/feedback` using [`@fastify/rate-limit`](https://github.com/fastify/fastify-rate-limit).
+
+Defaults:
+
+- `FEEDBACK_RATE_MAX = 7` submissions
+- `FEEDBACK_RATE_WINDOW = "1 minute"`
+
+When the limit is exceeded, the server responds with HTTP `429` and a minimal JSON body:
+
+```json
+{ "ok": false, "error": "Too many requests. Please retry in 42s." }
+```
+
+Because the app runs behind Traefik, Fastify is started with `trustProxy: true` so `request.ip` reflects the real client IP from `X-Forwarded-For` instead of the proxy address. The rate limiter uses `request.ip` as its key, and its error responses intentionally do not include the client IP or the request body, keeping logs free of sensitive data.
+
+Only `POST /api/feedback` is rate-limited (the plugin is registered with `global: false`); admin endpoints are unaffected and remain gated by `ADMIN_TOKEN`.
+
+Tuning:
+
+- Lower `FEEDBACK_RATE_MAX` (e.g. `5`) for stricter protection against bursty spam.
+- Raise it (e.g. `20`) if you expect legitimate users on a shared NAT (schools, offices) to submit multiple items in quick succession.
+- `FEEDBACK_RATE_WINDOW` accepts human-readable strings (`"30 seconds"`, `"5 minutes"`) or a number of milliseconds.
 
 ## Hidden routes and static-file behavior
 
