@@ -63,12 +63,23 @@ export async function buildApp() {
   await app.register(fastifyHelmet, {
     referrerPolicy: { policy: "no-referrer" },
     frameguard: { action: "deny" },
+    // Strict CSP: no 'unsafe-inline' for scripts or styles. All JS/CSS lives in
+    // external files under /assets/* (see public/*.js and public/*.css). This
+    // means any user-submitted feedback that ends up in the DOM cannot execute
+    // as a script, even if it slipped past the textContent rendering used by
+    // admin.js. To add a new script or stylesheet:
+    //   1. Drop the file into public/ and expose it under /assets/<name>.
+    //   2. Reference it from HTML via <script src="/assets/..."> or
+    //      <link rel="stylesheet" href="/assets/...">.
+    //   3. Do NOT add inline <script>...</script> blocks or style="..." attrs;
+    //      they will be blocked by the browser under this policy.
     contentSecurityPolicy: {
       useDefaults: false,
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        scriptSrcAttr: ["'none'"],
+        styleSrc: ["'self'"],
         imgSrc: ["'self'", "data:"],
         fontSrc: ["'self'"],
         connectSrc: ["'self'"],
@@ -172,6 +183,25 @@ export async function buildApp() {
   // admin API endpoint below enforces the header token.
   app.get(normalizedAdminPath, async (request, reply) => {
     return reply.sendFile("admin.html");
+  });
+
+  // Serve the small set of static JS/CSS assets referenced by index.html and
+  // admin.html under a fixed /assets/ prefix. Only explicitly listed files
+  // are exposed so we don't accidentally serve the entire public/ directory
+  // (which also contains the HTML pages protected by randomized paths).
+  const staticAssets = new Set([
+    "index.css",
+    "index.js",
+    "admin.css",
+    "admin.js"
+  ]);
+
+  app.get("/assets/:name", async (request, reply) => {
+    const name = request.params.name;
+    if (!staticAssets.has(name)) {
+      return reply.code(404).send({ ok: false, error: "Not found." });
+    }
+    return reply.sendFile(name);
   });
 
   app.post("/api/feedback", {

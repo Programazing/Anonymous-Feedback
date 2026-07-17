@@ -27,6 +27,21 @@ Important privacy limits:
 
 For real-world use, protect the admin route with a reverse proxy, basic auth, or another proper access control mechanism. Hidden URLs should be treated as convenience and noise reduction, not as the primary security boundary.
 
+## Content Security Policy and XSS handling
+
+Feedback bodies are treated as untrusted user input at every layer:
+
+- **Rendering.** The admin UI (`public/admin.js`) always inserts feedback text via `textContent`. `innerHTML` (and equivalents like `insertAdjacentHTML` or `document.write`) is never used for DB-sourced data, so payloads such as `<script>alert(1)</script>` or `"><img src=x onerror=alert(1)>` are shown verbatim as text.
+- **Content Security Policy.** `@fastify/helmet` is configured in `src/server.js` with a strict policy: `default-src 'self'`, `script-src 'self'`, `script-src-attr 'none'`, `style-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'`. Notably, **`'unsafe-inline'` is not present** for `script-src` or `style-src`. Any inline `<script>...</script>`, inline event handler (`onclick="..."`), or inline `style="..."` attribute will be blocked by the browser.
+- **Static assets.** All JavaScript and CSS live in dedicated files under `public/` and are served under the fixed `/assets/<name>` route (see `src/server.js`). Only an explicit allow-list of asset names is exposed.
+
+### Adding a new script or stylesheet
+
+1. Create the file in `public/` (e.g. `public/foo.js`).
+2. Add its filename to the `staticAssets` allow-list in `src/server.js`.
+3. Reference it from the HTML via `<script src="/assets/foo.js"></script>` or `<link rel="stylesheet" href="/assets/foo.css">`.
+4. **Do not** add inline `<script>`/`<style>` blocks or inline event-handler attributes; they will be blocked by the CSP. If inline code is ever truly required, prefer switching to a CSP nonce over reintroducing `'unsafe-inline'`.
+
 ## Stack
 
 | Component | Choice | Notes |
@@ -46,7 +61,7 @@ For real-world use, protect the admin route with a reverse proxy, basic auth, or
 - Separate reviewed and unread views in admin.
 - Randomized public and admin paths via environment variables.
 - Admin page and admin API protected by a shared `ADMIN_TOKEN` secret.
-- Strict Content Security Policy and other security headers via `@fastify/helmet`.
+- Strict Content Security Policy and other security headers via `@fastify/helmet` (no `'unsafe-inline'` for scripts or styles).
 - Per-IP rate limiting on `POST /api/feedback` via `@fastify/rate-limit`.
 - Startup logs that can print the full public and admin URLs.
 - Minimal database schema.
@@ -59,7 +74,11 @@ anonymous-feedback/
     feedback.sqlite
   public/
     admin.html
+    admin.css
+    admin.js
     index.html
+    index.css
+    index.js
   src/
     data.js
     server.js
