@@ -18,6 +18,14 @@ services:
       # Set LOG_PUBLIC_URL=true in your .env only when temporarily debugging.
       # LOG_ADMIN_URL was intentionally removed: the admin URL is never logged.
       LOG_PUBLIC_URL: ${LOG_PUBLIC_URL:-false}
+      # Optional diagnostic routes. Both default to false so they are not
+      # accidentally enabled in production.
+      #   ENABLE_HEALTHCHECK=true  -> exposes GET /healthz (no auth, no secrets)
+      #                               used by the container healthcheck below.
+      #   ENABLE_DEBUG_ROUTES=true -> exposes GET /debug/routes (admin token
+      #                               required; redacted output).
+      ENABLE_HEALTHCHECK: ${ENABLE_HEALTHCHECK:-false}
+      ENABLE_DEBUG_ROUTES: ${ENABLE_DEBUG_ROUTES:-false}
     expose:
       - "3000"
     volumes:
@@ -25,12 +33,30 @@ services:
     networks:
       - dokploy-network
       - default
+    # Container-internal healthcheck. Only meaningful when
+    # ENABLE_HEALTHCHECK=true in .env; otherwise /healthz is not registered
+    # and the probe will fail. Uses Node's built-in http module so no extra
+    # binary (curl/wget) is required inside the image. The probe hits
+    # 127.0.0.1 inside the container — /healthz is NOT routed through Traefik.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "require('http').get('http://127.0.0.1:'+ (process.env.PORT||3000) +'/healthz',
+          r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     labels:
       - traefik.enable=true
       - traefik.docker.network=dokploy-network
       - traefik.http.routers.anonymous-feedback.rule=Host(`anonymous-feedback-fghjfghjfghsdfg-grlpi-b3c6cc-31-97-103-251.sslip.io`)
       - traefik.http.routers.anonymous-feedback.entrypoints=web
       - traefik.http.services.anonymous-feedback.loadbalancer.server.port=3000
+      # Do NOT expose /healthz or /debug/routes through Traefik. They are
+      # container-internal only. If you truly need external monitoring of
+      # /healthz, add a dedicated router restricted by IP allowlist middleware.
 
 volumes:
   anonymous_feedback_data:

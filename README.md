@@ -213,6 +213,8 @@ The app can be configured with environment variables.
 | `DB_PATH` | Override the SQLite database file path. Defaults to `data/feedback.sqlite`. Primarily used by the test suite to isolate a temporary database. | `/tmp/afb-test/feedback.sqlite` |
 | `FEEDBACK_RATE_MAX` | Max `POST /api/feedback` submissions per IP per window. Defaults to `7`. | `5` |
 | `FEEDBACK_RATE_WINDOW` | Time window for `FEEDBACK_RATE_MAX`. Accepts `@fastify/rate-limit` duration strings or milliseconds. Defaults to `1 minute`. | `1 minute` |
+| `ENABLE_HEALTHCHECK` | Register the `GET /healthz` liveness probe. **Defaults to `false`.** When `true`, responds with `{"ok":true}` — no auth, no secrets, no DB access. Intended for container-internal healthchecks (Docker Compose, Kubernetes, Dokploy). Do not expose `/healthz` through the public reverse proxy unless you add an IP allowlist. | `false` |
+| `ENABLE_DEBUG_ROUTES` | Register the `GET /debug/routes` diagnostic endpoint. **Defaults to `false`.** Even when `true`, the endpoint requires the `x-admin-token` header (`ADMIN_TOKEN`) and its response never includes `PUBLIC_PATH`, `ADMIN_PATH`, `ADMIN_TOKEN`, raw environment variables, or database contents. Enable only briefly on a scratch instance. | `false` |
 
 Node exposes environment variables through `process.env`, and current Node versions also support loading them from a file with `--env-file`.
 

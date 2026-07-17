@@ -147,24 +147,52 @@ export async function buildApp() {
     return payload;
   });
 
+  // /healthz — opt-in liveness probe.
+  //
+  // Disabled by default (ENABLE_HEALTHCHECK=false). When enabled, returns a
+  // tiny JSON body with no secrets, no environment data, and no database
+  // access. Safe to expose to a container orchestrator (Docker/Compose,
+  // Kubernetes, Traefik) as an HTTP healthcheck. Do NOT expose it publicly
+  // through the reverse proxy unless you actually need external monitoring;
+  // container-internal healthchecks (e.g. `docker compose` healthcheck) reach
+  // it without a public route.
   if (enableHealthcheck) {
     app.get("/healthz", async () => {
-      return {
-        ok: true
-      };
+      return { ok: true };
     });
   }
 
+  // /debug/routes — opt-in, admin-only diagnostic endpoint.
+  //
+  // Disabled by default (ENABLE_DEBUG_ROUTES=false). Even when enabled it
+  // requires the admin token (x-admin-token header, same as /api/admin/*).
+  // The response is intentionally minimal: it lists the registered route
+  // patterns and the configured HOST/PORT only. It MUST NOT include:
+  //   - the randomized PUBLIC_PATH or ADMIN_PATH,
+  //   - the ADMIN_TOKEN or any other secret,
+  //   - raw process.env, process.cwd(), or database contents.
+  // Keep this list conservative when adding fields.
   if (enableDebugRoutes) {
-    app.get("/debug/routes", async () => {
+    app.get("/debug/routes", { preHandler: requireAdminToken }, async () => {
+      const routes = app
+        .printRoutes({ commonPrefix: false })
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        // Redact the randomized public/admin path patterns so the response
+        // never leaks them, even to an authenticated admin viewing this over
+        // a shoulder / screenshot.
+        .map((line) => {
+          if (line.includes(normalizedPublicPath)) return "<public-path> (redacted)";
+          if (line.includes(normalizedAdminPath)) return "<admin-path> (redacted)";
+          return line;
+        });
+
       return {
         ok: true,
-        publicPath: normalizedPublicPath,
-        adminPath: normalizedAdminPath,
         host,
         port,
-        publicBaseUrl,
-        cwd: process.cwd()
+        routes
       };
     });
   }
